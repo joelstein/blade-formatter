@@ -56,7 +56,12 @@ class PintFormatter
     private function resolvePintPath(): string
     {
         // Check for Pint in the project vendor directory
-        $projectPint = base_path('vendor/bin/pint');
+        try {
+            $basePath = base_path();
+        } catch (\Throwable) {
+            $basePath = getcwd();
+        }
+        $projectPint = $basePath.'/vendor/bin/pint';
         if (file_exists($projectPint)) {
             return $projectPint;
         }
