@@ -1,0 +1,292 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Blade Formatter standalone binary.
+ *
+ * Works without the Laravel framework — can be called from
+ * VS Code, CI, or any environment with PHP installed.
+ *
+ * Usage:
+ *   vendor/bin/blade-format [options] [files or directories...]
+ *
+ * Options:
+ *   --test       Check formatting without making changes (exit 1 if changes needed)
+ *   --dirty      Only format git-dirty .blade.php files
+ *   --config     Path to blade-formatter.json config file
+ *   --help       Show this help message
+ */
+
+// Find the Composer autoloader
+$autoloadPaths = [
+    __DIR__.'/../vendor/autoload.php',       // When run from package root
+    __DIR__.'/../../../autoload.php',         // When installed as a dependency
+];
+
+$autoloaded = false;
+foreach ($autoloadPaths as $autoloadPath) {
+    if (file_exists($autoloadPath)) {
+        require $autoloadPath;
+        $autoloaded = true;
+        break;
+    }
+}
+
+if (! $autoloaded) {
+    fwrite(STDERR, "Could not find Composer autoloader. Run 'composer install' first.\n");
+    exit(1);
+}
+
+use JoelStein\BladeFormatter\Formatter;
+use Symfony\Component\Finder\Finder;
+
+// --- Parse CLI arguments ---
+
+$args = array_slice($argv, 1);
+$options = [
+    'test' => false,
+    'dirty' => false,
+    'config' => null,
+    'help' => false,
+];
+$paths = [];
+
+for ($i = 0; $i < count($args); $i++) {
+    $arg = $args[$i];
+
+    if ($arg === '--test') {
+        $options['test'] = true;
+    } elseif ($arg === '--dirty') {
+        $options['dirty'] = true;
+    } elseif ($arg === '--config' && isset($args[$i + 1])) {
+        $options['config'] = $args[++$i];
+    } elseif ($arg === '--help' || $arg === '-h') {
+        $options['help'] = true;
+    } elseif (! str_starts_with($arg, '-')) {
+        $paths[] = $arg;
+    } else {
+        fwrite(STDERR, "Unknown option: {$arg}\n");
+        exit(1);
+    }
+}
+
+if ($options['help']) {
+    echo <<<'HELP'
+    Blade Formatter — Format Blade templates and Livewire SFCs
+
+    Usage:
+      vendor/bin/blade-format [options] [files or directories...]
+
+    Options:
+      --test       Check formatting without making changes (exit 1 if changes needed)
+      --dirty      Only format git-dirty .blade.php files
+      --config     Path to blade-formatter.json config file
+      -h, --help   Show this help message
+
+    Examples:
+      vendor/bin/blade-format                              Format all Blade files
+      vendor/bin/blade-format resources/views/home.blade.php   Format a single file
+      vendor/bin/blade-format resources/views/components       Format a directory
+      vendor/bin/blade-format --test                       Check without changes (for CI)
+      vendor/bin/blade-format --dirty                      Only format git-changed files
+
+    HELP;
+    exit(0);
+}
+
+// --- Load config ---
+
+$configPath = $options['config'];
+if ($configPath === null) {
+    // Look for blade-formatter.json in the current working directory
+    $configPath = getcwd().'/blade-formatter.json';
+    if (! file_exists($configPath)) {
+        $configPath = null;
+    }
+}
+
+$config = [];
+if ($configPath !== null) {
+    if (! file_exists($configPath)) {
+        fwrite(STDERR, "Config file not found: {$configPath}\n");
+        exit(1);
+    }
+    $json = file_get_contents($configPath);
+    if ($json === false) {
+        fwrite(STDERR, "Could not read config file: {$configPath}\n");
+        exit(1);
+    }
+    $config = json_decode($json, true);
+    if (! is_array($config)) {
+        fwrite(STDERR, "Invalid JSON in config file: {$configPath}\n");
+        exit(1);
+    }
+}
+
+$formatter = new Formatter(
+    enablePint: $config['enable_pint'] ?? true,
+    enableTailwindSort: $config['enable_tailwind_sort'] ?? true,
+    enableIndentation: $config['enable_indentation'] ?? true,
+    indentSize: $config['indent_size'] ?? 4,
+    pintConfigPath: $config['pint_config_path'] ?? null,
+    prettierPath: $config['prettier_path'] ?? 'npx',
+);
+
+// --- Resolve files ---
+
+$files = [];
+
+if ($options['dirty']) {
+    $files = getDirtyBladeFiles();
+} elseif (! empty($paths)) {
+    $files = resolvePathsToFiles($paths);
+} else {
+    // Default: scan resources/views from config or fallback
+    $defaultPaths = $config['paths'] ?? ['resources/views'];
+    $cwd = (string) getcwd();
+    $absolutePaths = array_map(
+        fn (string $p): string => is_dir($p) ? $p : $cwd.'/'.$p,
+        $defaultPaths,
+    );
+    $absolutePaths = array_filter($absolutePaths, 'is_dir');
+    if (! empty($absolutePaths)) {
+        $files = findBladeFiles($absolutePaths, $config['exclude'] ?? []);
+    }
+}
+
+if ($files === []) {
+    echo "No Blade files found.\n";
+    exit(0);
+}
+
+// --- Format files ---
+
+$changed = 0;
+$unchanged = 0;
+$isTest = $options['test'];
+
+foreach ($files as $file) {
+    $original = (string) file_get_contents($file);
+    $formatted = $formatter->format($original);
+
+    foreach ($formatter->getWarnings() as $warning) {
+        fwrite(STDERR, "  WARN  {$warning}\n");
+    }
+
+    if ($original === $formatted) {
+        $unchanged++;
+        continue;
+    }
+
+    $displayPath = relativePath($file);
+
+    if ($isTest) {
+        echo "  WOULD CHANGE  {$displayPath}\n";
+    } else {
+        file_put_contents($file, $formatted);
+        echo "  FIXED  {$displayPath}\n";
+    }
+
+    $changed++;
+}
+
+if ($changed === 0) {
+    echo "All files are already formatted.\n";
+    exit(0);
+}
+
+$verb = $isTest ? 'would be formatted' : 'formatted';
+echo "\n{$changed} file(s) {$verb}, {$unchanged} already formatted.\n";
+
+exit($isTest ? 1 : 0);
+
+// --- Helper functions ---
+
+/**
+ * @param  list<string>  $paths
+ * @return list<string>
+ */
+function resolvePathsToFiles(array $paths): array
+{
+    $files = [];
+    $dirs = [];
+
+    foreach ($paths as $path) {
+        $absolute = file_exists($path) ? realpath($path) : getcwd().'/'.$path;
+        if ($absolute === false) {
+            continue;
+        }
+
+        if (is_file($absolute) && str_ends_with($absolute, '.blade.php')) {
+            $files[] = $absolute;
+        } elseif (is_dir($absolute)) {
+            $dirs[] = $absolute;
+        }
+    }
+
+    if (! empty($dirs)) {
+        $files = array_merge($files, findBladeFiles($dirs, []));
+    }
+
+    sort($files);
+
+    return array_values(array_unique($files));
+}
+
+/**
+ * @param  list<string>  $directories
+ * @param  list<string>  $exclude
+ * @return list<string>
+ */
+function findBladeFiles(array $directories, array $exclude): array
+{
+    $finder = Finder::create()
+        ->files()
+        ->name('*.blade.php')
+        ->in($directories);
+
+    foreach ($exclude as $pattern) {
+        $finder->notPath($pattern);
+    }
+
+    $files = [];
+    foreach ($finder as $file) {
+        $files[] = (string) $file->getRealPath();
+    }
+
+    sort($files);
+
+    return $files;
+}
+
+/**
+ * @return list<string>
+ */
+function getDirtyBladeFiles(): array
+{
+    exec('git diff --name-only --diff-filter=ACMR HEAD 2>/dev/null', $output, $exitCode);
+
+    if ($exitCode !== 0) {
+        fwrite(STDERR, "Failed to get git dirty files.\n");
+        return [];
+    }
+
+    $cwd = (string) getcwd();
+    $files = [];
+    foreach ($output as $line) {
+        if (str_ends_with($line, '.blade.php') && $line !== '') {
+            $files[] = $cwd.'/'.$line;
+        }
+    }
+
+    return $files;
+}
+
+function relativePath(string $path): string
+{
+    $cwd = (string) getcwd();
+
+    return str_starts_with($path, $cwd.'/')
+        ? substr($path, strlen($cwd) + 1)
+        : $path;
+}
