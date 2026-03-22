@@ -64,7 +64,7 @@ class FormatCommandTest extends TestCase
 
         $this->artisan('blade:format')
             ->assertSuccessful()
-            ->expectsOutputToContain('All files are already formatted.');
+            ->expectsOutputToContain('All files already formatted.');
     }
 
     #[Test]

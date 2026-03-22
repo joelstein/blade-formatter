@@ -7,6 +7,12 @@ use Illuminate\Support\Facades\Process;
 use JoelStein\BladeFormatter\BatchFormatter;
 use Symfony\Component\Finder\Finder;
 
+use function Laravel\Prompts\info;
+use function Laravel\Prompts\note;
+use function Laravel\Prompts\progress;
+use function Laravel\Prompts\spin;
+use function Laravel\Prompts\warning;
+
 class FormatCommand extends Command
 {
     public const EXCLUDE_DEFAULTS = [
@@ -17,17 +23,25 @@ class FormatCommand extends Command
     protected $signature = 'blade:format
                             {path?* : Paths to format (overrides config)}
                             {--test : Check formatting without making changes}
-                            {--dirty : Only format git-dirty files}';
+                            {--dirty : Only format git-dirty files}
+                            {--parallel : Run Pint and Prettier concurrently}';
 
     protected $description = 'Format Blade templates and Livewire SFCs';
 
     public function handle(): int
     {
+        $startTime = microtime(true);
+
         $formatter = BatchFormatter::fromConfig();
+
+        if ($this->option('parallel')) {
+            $formatter->setParallel(true);
+        }
+
         $files = $this->resolveFiles();
 
         if ($files === []) {
-            $this->components->info('No Blade files found.');
+            info('No Blade files found.');
 
             return self::SUCCESS;
         }
@@ -38,16 +52,19 @@ class FormatCommand extends Command
             $fileContents[$file] = (string) file_get_contents($file);
         }
 
-        // Batch format
-        $results = $formatter->formatBatch($fileContents);
+        // Batch format with spinner
+        $results = spin(
+            fn () => $formatter->formatBatch($fileContents),
+            'Formatting '.count($files).' file(s)...',
+        );
 
         $changed = 0;
         $unchanged = 0;
         $isTest = (bool) $this->option('test');
 
         foreach ($results as $file => $formatted) {
-            foreach ($formatter->getWarnings($file) as $warning) {
-                $this->components->warn($warning);
+            foreach ($formatter->getWarnings($file) as $warn) {
+                warning($warn);
             }
 
             if ($fileContents[$file] === $formatted) {
@@ -68,15 +85,18 @@ class FormatCommand extends Command
             $changed++;
         }
 
+        $elapsed = round((microtime(true) - $startTime) * 1000);
+
+        $this->newLine();
+
         if ($changed === 0) {
-            $this->components->info('All files are already formatted.');
+            info("All files already formatted. ({$elapsed}ms)");
 
             return self::SUCCESS;
         }
 
         $verb = $isTest ? 'would be formatted' : 'formatted';
-        $this->newLine();
-        $this->components->info("{$changed} file(s) {$verb}, {$unchanged} already formatted.");
+        info("{$changed} file(s) {$verb}, {$unchanged} already formatted. ({$elapsed}ms)");
 
         return $isTest ? self::FAILURE : self::SUCCESS;
     }

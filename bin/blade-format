@@ -52,6 +52,7 @@ $args = array_slice($argv, 1);
 $options = [
     'test' => false,
     'dirty' => false,
+    'parallel' => false,
     'config' => null,
     'help' => false,
 ];
@@ -66,6 +67,8 @@ for ($i = 0; $i < count($args); $i++) {
         $options['dirty'] = true;
     } elseif ($arg === '--config' && isset($args[$i + 1])) {
         $options['config'] = $args[++$i];
+    } elseif ($arg === '--parallel') {
+        $options['parallel'] = true;
     } elseif ($arg === '--help' || $arg === '-h') {
         $options['help'] = true;
     } elseif (! str_starts_with($arg, '-')) {
@@ -86,6 +89,7 @@ if ($options['help']) {
     Options:
       --test       Check formatting without making changes (exit 1 if changes needed)
       --dirty      Only format git-dirty .blade.php files
+      --parallel   Run Pint and Prettier concurrently
       --config     Path to blade-formatter.json config file
       -h, --help   Show this help message
 
@@ -136,7 +140,10 @@ $formatter = new BatchFormatter(
     indentSize: $config['indent_size'] ?? 4,
     pintConfigPath: $config['pint_config_path'] ?? null,
     prettierPath: $config['prettier_path'] ?? 'npx',
+    parallel: $options['parallel'],
 );
+
+$startTime = microtime(true);
 
 // --- Resolve files ---
 
@@ -203,13 +210,15 @@ foreach ($results as $file => $formatted) {
     $changed++;
 }
 
+$elapsed = round((microtime(true) - $startTime) * 1000);
+
 if ($changed === 0) {
-    echo "All files are already formatted.\n";
+    echo "All files already formatted. ({$elapsed}ms)\n";
     exit(0);
 }
 
 $verb = $isTest ? 'would be formatted' : 'formatted';
-echo "\n{$changed} file(s) {$verb}, {$unchanged} already formatted.\n";
+echo "\n{$changed} file(s) {$verb}, {$unchanged} already formatted. ({$elapsed}ms)\n";
 
 exit($isTest ? 1 : 0);
 
