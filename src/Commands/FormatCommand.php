@@ -4,11 +4,16 @@ namespace JoelStein\BladeFormatter\Commands;
 
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Process;
-use JoelStein\BladeFormatter\Formatter;
+use JoelStein\BladeFormatter\BatchFormatter;
 use Symfony\Component\Finder\Finder;
 
 class FormatCommand extends Command
 {
+    public const EXCLUDE_DEFAULTS = [
+        'vendor/mail',
+        'vendor/notifications',
+    ];
+
     protected $signature = 'blade:format
                             {path?* : Paths to format (overrides config)}
                             {--test : Check formatting without making changes}
@@ -18,7 +23,7 @@ class FormatCommand extends Command
 
     public function handle(): int
     {
-        $formatter = Formatter::fromConfig();
+        $formatter = BatchFormatter::fromConfig();
         $files = $this->resolveFiles();
 
         if ($files === []) {
@@ -27,19 +32,25 @@ class FormatCommand extends Command
             return self::SUCCESS;
         }
 
+        // Read all file contents
+        $fileContents = [];
+        foreach ($files as $file) {
+            $fileContents[$file] = (string) file_get_contents($file);
+        }
+
+        // Batch format
+        $results = $formatter->formatBatch($fileContents);
+
         $changed = 0;
         $unchanged = 0;
         $isTest = (bool) $this->option('test');
 
-        foreach ($files as $file) {
-            $original = (string) file_get_contents($file);
-            $formatted = $formatter->format($original);
-
-            foreach ($formatter->getWarnings() as $warning) {
+        foreach ($results as $file => $formatted) {
+            foreach ($formatter->getWarnings($file) as $warning) {
                 $this->components->warn($warning);
             }
 
-            if ($original === $formatted) {
+            if ($fileContents[$file] === $formatted) {
                 $unchanged++;
 
                 continue;
@@ -86,8 +97,9 @@ class FormatCommand extends Command
             $paths = config('blade-formatter.paths', ['resources/views']);
         }
 
-        /** @var list<string> $exclude */
-        $exclude = config('blade-formatter.exclude', []);
+        /** @var list<string> $userExclude */
+        $userExclude = config('blade-formatter.exclude', []);
+        $exclude = array_values(array_unique(array_merge(self::EXCLUDE_DEFAULTS, $userExclude)));
 
         $files = [];
         $dirs = [];

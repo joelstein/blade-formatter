@@ -37,8 +37,14 @@ if (! $autoloaded) {
     exit(1);
 }
 
-use JoelStein\BladeFormatter\Formatter;
+use JoelStein\BladeFormatter\BatchFormatter;
 use Symfony\Component\Finder\Finder;
+
+// Exclude defaults (always applied)
+const EXCLUDE_DEFAULTS = [
+    'vendor/mail',
+    'vendor/notifications',
+];
 
 // --- Parse CLI arguments ---
 
@@ -123,7 +129,7 @@ if ($configPath !== null) {
     }
 }
 
-$formatter = new Formatter(
+$formatter = new BatchFormatter(
     enablePint: $config['enable_pint'] ?? true,
     enableTailwindSort: $config['enable_tailwind_sort'] ?? true,
     enableIndentation: $config['enable_indentation'] ?? true,
@@ -150,7 +156,8 @@ if ($options['dirty']) {
     );
     $absolutePaths = array_filter($absolutePaths, 'is_dir');
     if (! empty($absolutePaths)) {
-        $files = findBladeFiles($absolutePaths, $config['exclude'] ?? []);
+        $exclude = array_values(array_unique(array_merge(EXCLUDE_DEFAULTS, $config['exclude'] ?? [])));
+        $files = findBladeFiles($absolutePaths, $exclude);
     }
 }
 
@@ -159,21 +166,27 @@ if ($files === []) {
     exit(0);
 }
 
-// --- Format files ---
+// --- Read all files ---
+
+$fileContents = [];
+foreach ($files as $file) {
+    $fileContents[$file] = (string) file_get_contents($file);
+}
+
+// --- Batch format ---
+
+$results = $formatter->formatBatch($fileContents);
 
 $changed = 0;
 $unchanged = 0;
 $isTest = $options['test'];
 
-foreach ($files as $file) {
-    $original = (string) file_get_contents($file);
-    $formatted = $formatter->format($original);
-
-    foreach ($formatter->getWarnings() as $warning) {
+foreach ($results as $file => $formatted) {
+    foreach ($formatter->getWarnings($file) as $warning) {
         fwrite(STDERR, "  WARN  {$warning}\n");
     }
 
-    if ($original === $formatted) {
+    if ($fileContents[$file] === $formatted) {
         $unchanged++;
         continue;
     }
@@ -225,7 +238,7 @@ function resolvePathsToFiles(array $paths): array
     }
 
     if (! empty($dirs)) {
-        $files = array_merge($files, findBladeFiles($dirs, []));
+        $files = array_merge($files, findBladeFiles($dirs, EXCLUDE_DEFAULTS));
     }
 
     sort($files);

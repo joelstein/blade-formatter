@@ -19,14 +19,82 @@ class TailwindFormatter
     }
 
     /**
-     * Sort classes in standard class="..." attributes.
+     * Extract all class strings from content (both class="" and @class([])).
      *
-     * Extracts all class values, sorts them via Prettier in a single batch,
-     * then replaces the originals.
+     * @return list<string>
+     */
+    public function extractClassStrings(string $content): array
+    {
+        $classStrings = [];
+
+        // From class="..." attributes
+        preg_match_all('/\bclass="([^"]*)"/', $content, $matches, PREG_SET_ORDER);
+        foreach ($matches as $match) {
+            $classStrings[] = $match[1];
+        }
+
+        // From @class([...]) directives
+        preg_match_all('/@class\(\[[\s\S]*?\]\)/', $content, $directiveMatches, PREG_SET_ORDER);
+        $classStringPattern = '/([\'"])((?:(?!\1).)*)\1(?:\s*=>)?/';
+        foreach ($directiveMatches as $match) {
+            preg_match_all($classStringPattern, $match[0], $stringMatches, PREG_SET_ORDER);
+            foreach ($stringMatches as $stringMatch) {
+                $classStrings[] = $stringMatch[2];
+            }
+        }
+
+        return $classStrings;
+    }
+
+    /**
+     * Sort a batch of class strings in one Prettier call.
+     *
+     * @param  list<string>  $classStrings
+     * @return list<string>|null  Sorted class strings, or null on failure
+     */
+    public function sortClassStringsBatch(string $prettierPath, array $classStrings): ?array
+    {
+        return $this->sortClassStrings($prettierPath, $classStrings);
+    }
+
+    /**
+     * Apply pre-sorted class strings back to content.
+     *
+     * @param  array<string, string>  $sortMap  Original → sorted class string
+     */
+    public function applySortedClasses(string $content, array $sortMap): string
+    {
+        // Replace in class="..." attributes
+        $content = preg_replace_callback('/\bclass="([^"]*)"/', function (array $match) use ($sortMap): string {
+            $sorted = $sortMap[$match[1]] ?? null;
+
+            return $sorted !== null ? 'class="'.$sorted.'"' : $match[0];
+        }, $content) ?? $content;
+
+        // Replace in @class([...]) directives
+        $classStringPattern = '/([\'"])((?:(?!\1).)*)\1(?:\s*=>)?/';
+        $content = (string) preg_replace_callback('/@class\(\[[\s\S]*?\]\)/', function (array $block) use ($classStringPattern, $sortMap): string {
+            return (string) preg_replace_callback($classStringPattern, function (array $match) use ($sortMap): string {
+                $quote = $match[1];
+                $classValue = $match[2];
+                $sorted = $sortMap[$classValue] ?? null;
+
+                if ($sorted === null || $sorted === $classValue) {
+                    return $match[0];
+                }
+
+                return str_replace($quote.$classValue.$quote, $quote.$sorted.$quote, $match[0]);
+            }, $block[0]);
+        }, $content);
+
+        return $content;
+    }
+
+    /**
+     * Sort classes in standard class="..." attributes.
      */
     private function sortClassAttributes(string $prettierPath, string $content): string
     {
-        // Match class="..." attributes (double quotes)
         preg_match_all('/\bclass="([^"]*)"/', $content, $matches, PREG_SET_ORDER);
 
         if (empty($matches)) {
@@ -40,7 +108,6 @@ class TailwindFormatter
             return $content;
         }
 
-        // Build replacement map (only for values that changed)
         $replacements = [];
         for ($i = 0; $i < count($classValues); $i++) {
             if ($classValues[$i] !== $sortedValues[$i]) {
@@ -52,7 +119,6 @@ class TailwindFormatter
             return $content;
         }
 
-        // Replace class values in original content
         return preg_replace_callback('/\bclass="([^"]*)"/', function (array $match) use ($replacements): string {
             $sorted = $replacements[$match[1]] ?? null;
 
@@ -71,7 +137,6 @@ class TailwindFormatter
             return $content;
         }
 
-        // Extract all class strings from all @class directives
         $classStrings = [];
         $classStringPattern = '/([\'"])((?:(?!\1).)*)\1(?:\s*=>)?/';
 
@@ -93,13 +158,11 @@ class TailwindFormatter
             return $content;
         }
 
-        // Build map of original → sorted
         $sortMap = [];
         for ($i = 0; $i < count($classStrings); $i++) {
             $sortMap[$classStrings[$i]] = $sortedClasses[$i];
         }
 
-        // Replace each class string in @class directives
         return (string) preg_replace_callback('/@class\(\[[\s\S]*?\]\)/', function (array $block) use ($classStringPattern, $sortMap): string {
             return (string) preg_replace_callback($classStringPattern, function (array $match) use ($sortMap): string {
                 $quote = $match[1];
@@ -118,11 +181,8 @@ class TailwindFormatter
     /**
      * Sort an array of class strings using Prettier with the Tailwind plugin.
      *
-     * Wraps each class string in a <div class="..."></div>, runs Prettier,
-     * and extracts the sorted classes back out.
-     *
      * @param  list<string>  $classStrings
-     * @return list<string>|null Sorted class strings, or null on failure
+     * @return list<string>|null  Sorted class strings, or null on failure
      */
     private function sortClassStrings(string $prettierPath, array $classStrings): ?array
     {
@@ -138,7 +198,6 @@ class TailwindFormatter
 
         $sorted = $this->runPrettier($prettierPath, implode("\n", $lines));
 
-        // Extract sorted classes back out
         preg_match_all('/class="([^"]*)"/', $sorted, $extractMatches);
 
         if (count($extractMatches[1]) !== count($classStrings)) {
@@ -160,7 +219,7 @@ class TailwindFormatter
         try {
             file_put_contents($tmpFile, $content);
 
-            $command = $this->buildPrettierCommand($prettierPath, $tmpFile);
+            $command = self::buildPrettierCommand($prettierPath, $tmpFile);
 
             $process = new Process($command);
             $process->setTimeout(30);
@@ -182,12 +241,10 @@ class TailwindFormatter
      *
      * @return list<string>
      */
-    private function buildPrettierCommand(string $prettierPath, string $filePath): array
+    public static function buildPrettierCommand(string $prettierPath, string $filePath): array
     {
-        // Use a high print width to prevent Prettier from wrapping our synthetic HTML
         $commonArgs = [$filePath, '--write', '--plugin', 'prettier-plugin-tailwindcss', '--print-width', '9999'];
 
-        // Support custom prettier path (e.g. node_modules/.bin/prettier)
         if ($prettierPath !== 'npx') {
             return [$prettierPath, ...$commonArgs];
         }

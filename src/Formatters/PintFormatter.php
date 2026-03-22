@@ -9,51 +9,75 @@ class PintFormatter
 {
     public function format(string $phpCode, ?string $configPath = null): string
     {
+        $results = $this->formatBatch(['single' => $phpCode], $configPath);
+
+        return $results['single'];
+    }
+
+    /**
+     * Format multiple PHP chunks in a single Pint invocation.
+     *
+     * @param  array<string, string>  $phpChunks  Keyed by identifier
+     * @return array<string, string>  Formatted chunks, same keys
+     */
+    public function formatBatch(array $phpChunks, ?string $configPath = null): array
+    {
+        if ($phpChunks === []) {
+            return [];
+        }
+
+        $pintPath = $this->resolvePintPath();
         $tmpDir = sys_get_temp_dir().'/blade-fmt-'.uniqid();
         mkdir($tmpDir);
-        $tmpFile = $tmpDir.'/component.php';
 
         try {
-            file_put_contents($tmpFile, $phpCode);
-
-            $this->runPint($tmpFile, $configPath);
-
-            $formatted = rtrim((string) file_get_contents($tmpFile));
-
-            // Pint strips the closing PHP tag (PSR-12), but SFCs need it
-            if (! str_ends_with($formatted, '?'.'>')) {
-                $formatted .= "\n".'?'.'>';
+            $keyMap = [];
+            $index = 0;
+            foreach ($phpChunks as $key => $phpCode) {
+                $filename = $index.'.php';
+                $keyMap[$filename] = $key;
+                file_put_contents($tmpDir.'/'.$filename, $phpCode);
+                $index++;
             }
 
-            return $formatted;
+            $command = [$pintPath, $tmpDir, '--quiet'];
+            if ($configPath !== null) {
+                $command[] = '--config';
+                $command[] = $configPath;
+            }
+
+            $process = new Process($command);
+            $process->setTimeout(30);
+            $process->run();
+
+            // Pint exits with 1 when it makes changes, which is fine
+            if (! $process->isSuccessful() && $process->getExitCode() !== 1) {
+                throw new RuntimeException('Pint failed: '.($process->getErrorOutput() ?: $process->getOutput()));
+            }
+
+            $results = [];
+            foreach ($keyMap as $filename => $key) {
+                $formatted = rtrim((string) file_get_contents($tmpDir.'/'.$filename));
+
+                // Pint strips the closing PHP tag (PSR-12), but SFCs need it
+                if (! str_ends_with($formatted, '?'.'>')) {
+                    $formatted .= "\n".'?'.'>';
+                }
+
+                $results[$key] = $formatted;
+            }
+
+            return $results;
         } finally {
-            @unlink($tmpFile);
+            // Clean up temp files
+            foreach (glob($tmpDir.'/*.php') ?: [] as $file) {
+                @unlink($file);
+            }
             @rmdir($tmpDir);
         }
     }
 
-    private function runPint(string $filePath, ?string $configPath): void
-    {
-        $pintPath = $this->resolvePintPath();
-
-        $command = [$pintPath, $filePath, '--quiet'];
-
-        if ($configPath !== null) {
-            $command[] = '--config';
-            $command[] = $configPath;
-        }
-
-        $process = new Process($command);
-        $process->setTimeout(15);
-        $process->run();
-
-        // Pint exits with 1 when it makes changes, which is fine
-        if (! $process->isSuccessful() && $process->getExitCode() !== 1) {
-            throw new RuntimeException('Pint failed: '.($process->getErrorOutput() ?: $process->getOutput()));
-        }
-    }
-
-    private function resolvePintPath(): string
+    public static function resolvePintPath(): string
     {
         // Check for Pint in the project vendor directory
         try {
