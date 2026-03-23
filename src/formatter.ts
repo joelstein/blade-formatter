@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { parseSfc, assembleSfc } from './parser';
-import { formatWithPint } from './formatters/pint';
-import { sortTailwindClasses } from './formatters/tailwind';
-import { formatIndentation } from './formatters/indentation';
+import { formatWithPint } from './Formatters/pint';
+import { sortTailwindClasses } from './Formatters/tailwind';
+import { formatIndentation } from './Formatters/indentation';
 
 /** Track which warnings have been shown so we don't spam the user */
 const shownWarnings = new Set<string>();
