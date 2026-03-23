@@ -281,10 +281,15 @@ function countOpeningAdjustments(line: string): number {
     // Blade opening directives
     const directiveMatch = line.match(/^@(\w+)/);
     if (directiveMatch && OPENING_DIRECTIVES.has('@' + directiveMatch[1])) {
-        // Check if the closing counterpart is on the same line (e.g. @php ... @endphp)
-        const closing = DIRECTIVE_PAIRS.get('@' + directiveMatch[1]);
-        if (!closing || !line.includes(closing)) {
-            count++;
+        // @php(...) is an inline expression, not a block — no indent change
+        if (directiveMatch[1] === 'php' && /^@php\s*\(/.test(line)) {
+            // skip — inline @php expression
+        } else {
+            // Check if the closing counterpart is on the same line (e.g. @php ... @endphp)
+            const closing = DIRECTIVE_PAIRS.get('@' + directiveMatch[1]);
+            if (!closing || !line.includes(closing)) {
+                count++;
+            }
         }
     }
 

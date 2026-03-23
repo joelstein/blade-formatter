@@ -284,6 +284,22 @@ describe('Blade directive indentation', () => {
 </div>`);
     });
 
+    it('does not indent after @php(...) inline expression', () => {
+        const input = `
+<div>
+@php($globalLimit = app(Settings::class)->maxRequestsPerUserPerYear)
+<flux:input wire:model="formMaxRequestsPerYear" />
+<flux:switch wire:model="formIsAdmin" />
+</div>`;
+
+        expect(indent(input)).toBe(`
+<div>
+    @php($globalLimit = app(Settings::class)->maxRequestsPerUserPerYear)
+    <flux:input wire:model="formMaxRequestsPerYear" />
+    <flux:switch wire:model="formIsAdmin" />
+</div>`);
+    });
+
     it('still indents block @php @endphp', () => {
         const input = `
 <div>

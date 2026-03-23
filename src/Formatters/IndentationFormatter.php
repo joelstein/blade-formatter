@@ -266,9 +266,14 @@ class IndentationFormatter
         if (preg_match('/^@(\w+)/', $line, $directiveMatch)) {
             $directive = '@'.$directiveMatch[1];
             if (in_array($directive, self::OPENING_DIRECTIVES)) {
-                $closing = $this->directivePairs[$directive] ?? null;
-                if ($closing === null || ! str_contains($line, $closing)) {
-                    $count++;
+                // @php(...) is an inline expression, not a block — no indent change
+                if ($directiveMatch[1] === 'php' && preg_match('/^@php\s*\(/', $line)) {
+                    // skip — inline @php expression
+                } else {
+                    $closing = $this->directivePairs[$directive] ?? null;
+                    if ($closing === null || ! str_contains($line, $closing)) {
+                        $count++;
+                    }
                 }
             }
         }

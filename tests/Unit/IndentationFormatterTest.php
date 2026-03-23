@@ -190,6 +190,15 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_does_not_indent_after_inline_php_expression(): void
+    {
+        $input = "\n<div>\n@php(\$globalLimit = app(Settings::class)->maxRequestsPerUserPerYear)\n<flux:input wire:model=\"formMaxRequestsPerYear\" />\n<flux:switch wire:model=\"formIsAdmin\" />\n</div>";
+        $expected = "\n<div>\n    @php(\$globalLimit = app(Settings::class)->maxRequestsPerUserPerYear)\n    <flux:input wire:model=\"formMaxRequestsPerYear\" />\n    <flux:switch wire:model=\"formIsAdmin\" />\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_still_indents_block_php_endphp(): void
     {
         $input = "\n<div>\n@php\n\$var = 'value';\n@endphp\n<p>After</p>\n</div>";
