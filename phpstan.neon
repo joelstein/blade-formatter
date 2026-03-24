@@ -3,8 +3,5 @@ includes:
 
 parameters:
     paths:
-        - src
+        - app
     level: max
-    excludePaths:
-        - src/Formatters/*.ts
-        - src/*.ts

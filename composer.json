@@ -3,35 +3,34 @@
     "description": "Format Blade templates and Livewire SFCs with Pint, Tailwind class sorting, and auto-indentation",
     "keywords": ["laravel", "blade", "livewire", "formatter", "pint", "tailwind"],
     "license": "MIT",
-    "type": "library",
+    "type": "project",
     "require": {
         "php": "^8.2",
-        "illuminate/console": "^12.0|^13.0",
-        "illuminate/support": "^12.0|^13.0",
-        "laravel/pint": "^1.0"
+        "ext-json": "*",
+        "ext-mbstring": "*"
     },
     "require-dev": {
         "larastan/larastan": "^3.0",
-        "orchestra/testbench": "^10.0|^11.0",
+        "laravel-zero/framework": "^12.1",
+        "laravel-zero/phar-updater": "^1.4",
+        "mockery/mockery": "^1.6",
         "phpunit/phpunit": "^11.0"
     },
-    "bin": ["bin/blade-format"],
+    "bin": ["builds/blade-format"],
     "autoload": {
         "psr-4": {
-            "JoelStein\\BladeFormatter\\": "src/"
+            "App\\": "app/"
         }
     },
     "autoload-dev": {
         "psr-4": {
-            "JoelStein\\BladeFormatter\\Tests\\": "tests/"
+            "Tests\\": "tests/"
         }
     },
-    "extra": {
-        "laravel": {
-            "providers": [
-                "JoelStein\\BladeFormatter\\BladeFormatterServiceProvider"
-            ]
-        }
+    "scripts": {
+        "post-install-cmd": "@setup-hooks",
+        "post-update-cmd": "@setup-hooks",
+        "setup-hooks": "ln -sf ../../hooks/pre-commit .git/hooks/pre-commit"
     },
     "config": {
         "sort-packages": true

@@ -1,0 +1,32 @@
+#!/bin/sh
+
+ROOT="$(git rev-parse --show-toplevel)"
+
+# Rebuild the PHAR if PHP source files changed
+if git diff --cached --name-only | grep -qE '^(app|bootstrap|config)/.*\.php$|^bin/blade-format$|^box\.json$'; then
+    echo "PHP source changed — rebuilding PHAR..."
+    php -d phar.readonly=0 vendor/laravel-zero/framework/bin/box compile --working-dir="$ROOT" --quiet 2>&1
+
+    if [ $? -ne 0 ]; then
+        echo "PHAR build failed. Commit aborted."
+        exit 1
+    fi
+
+    git add builds/blade-format
+    echo "PHAR rebuilt and staged."
+fi
+
+# Rebuild the VS Code extension if extension source changed
+if git diff --cached --name-only | grep -qE '^src/extension\.ts$|^package\.json$|^\.vscodeignore$'; then
+    echo "Extension source changed — rebuilding .vsix..."
+    npm run build --silent && npm run package --silent 2>&1
+    mv "$ROOT"/blade-formatter-*.vsix "$ROOT/builds/blade-formatter.vsix" 2>/dev/null
+
+    if [ ! -f "$ROOT/builds/blade-formatter.vsix" ]; then
+        echo "VS Code extension build failed. Commit aborted."
+        exit 1
+    fi
+
+    git add builds/blade-formatter.vsix
+    echo "VS Code extension rebuilt and staged."
+fi

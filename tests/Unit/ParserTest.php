@@ -1,8 +1,8 @@
 <?php
 
-namespace JoelStein\BladeFormatter\Tests\Unit;
+namespace Tests\Unit;
 
-use JoelStein\BladeFormatter\Parser;
+use App\Parser;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
