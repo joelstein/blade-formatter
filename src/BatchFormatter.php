@@ -58,9 +58,10 @@ class BatchFormatter
      * Format multiple files in batch, minimizing subprocess invocations.
      *
      * @param  array<string, string>  $files  Keyed by file path => content
+     * @param  (\Closure(string $path, string $formatted): void)|null  $onFileComplete
      * @return array<string, string> Formatted content, same keys
      */
-    public function formatBatch(array $files): array
+    public function formatBatch(array $files, ?\Closure $onFileComplete = null): array
     {
         $this->warnings = [];
 
@@ -130,6 +131,10 @@ class BatchFormatter
 
             // Collapse multiple consecutive blank lines
             $results[$path] = (string) preg_replace('/\n{3,}/', "\n\n", $result);
+
+            if ($onFileComplete !== null) {
+                $onFileComplete($path, $results[$path]);
+            }
         }
 
         return $results;

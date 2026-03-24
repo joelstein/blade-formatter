@@ -9,7 +9,6 @@ use Symfony\Component\Console\Terminal;
 use Symfony\Component\Finder\Finder;
 
 use function Laravel\Prompts\info;
-use function Laravel\Prompts\spin;
 use function Laravel\Prompts\warning;
 
 class FormatCommand extends Command
@@ -51,40 +50,34 @@ class FormatCommand extends Command
             $fileContents[$file] = (string) file_get_contents($file);
         }
 
-        // Batch format with spinner
-        $results = spin(
-            fn () => $formatter->formatBatch($fileContents),
-            'Formatting '.count($files).' file(s)...',
-        );
-
         $changed = [];
         $unchanged = 0;
         $isTest = (bool) $this->option('test');
         $warnings = [];
 
-        // Progress dots (Pint-style)
+        // Progress dots (Pint-style) — callback fires per-file during batch formatting
         $symbolsPerLine = (new Terminal)->getWidth() - 4;
         $processed = 0;
 
         $this->newLine();
         $this->output->write('  ');
 
-        foreach ($results as $file => $formatted) {
+        $results = $formatter->formatBatch($fileContents, function (string $path, string $formatted) use ($fileContents, $isTest, $formatter, &$changed, &$unchanged, &$warnings, &$processed, $symbolsPerLine) {
             if ($processed > 0 && $processed % $symbolsPerLine === 0) {
                 $this->newLine();
                 $this->output->write('  ');
             }
 
-            foreach ($formatter->getWarnings($file) as $warn) {
+            foreach ($formatter->getWarnings($path) as $warn) {
                 $warnings[] = $warn;
             }
 
-            if ($fileContents[$file] === $formatted) {
+            if ($fileContents[$path] === $formatted) {
                 $this->output->write('<fg=gray>.</>');
                 $unchanged++;
             } else {
                 if (! $isTest) {
-                    file_put_contents($file, $formatted);
+                    file_put_contents($path, $formatted);
                 }
 
                 if ($isTest) {
@@ -93,11 +86,11 @@ class FormatCommand extends Command
                     $this->output->write('<fg=green;options=bold>✓</>');
                 }
 
-                $changed[] = $file;
+                $changed[] = $path;
             }
 
             $processed++;
-        }
+        });
 
         $this->newLine(2);
 

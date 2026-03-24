@@ -182,10 +182,6 @@ foreach ($files as $file) {
 
 // --- Batch format ---
 
-echo "Formatting ".count($files)." file(s)...\n";
-
-$results = $formatter->formatBatch($fileContents);
-
 $changed = [];
 $unchanged = 0;
 $isTest = $options['test'];
@@ -196,24 +192,24 @@ $termWidth = $isTty ? ((int) exec('tput cols 2>/dev/null') ?: 80) : 80;
 $symbolsPerLine = $termWidth - 4;
 $processed = 0;
 
-// Progress dots (Pint-style)
+// Progress dots (Pint-style) — callback fires per-file during batch formatting
 echo "\n  ";
 
-foreach ($results as $file => $formatted) {
+$results = $formatter->formatBatch($fileContents, function (string $path, string $formatted) use ($fileContents, $isTest, $formatter, &$changed, &$unchanged, &$warnings, &$processed, $symbolsPerLine, $isTty) {
     if ($processed > 0 && $processed % $symbolsPerLine === 0) {
         echo "\n  ";
     }
 
-    foreach ($formatter->getWarnings($file) as $warning) {
+    foreach ($formatter->getWarnings($path) as $warning) {
         $warnings[] = $warning;
     }
 
-    if ($fileContents[$file] === $formatted) {
+    if ($fileContents[$path] === $formatted) {
         echo $isTty ? "\033[90m.\033[0m" : '.';
         $unchanged++;
     } else {
         if (! $isTest) {
-            file_put_contents($file, $formatted);
+            file_put_contents($path, $formatted);
         }
 
         if ($isTest) {
@@ -222,11 +218,11 @@ foreach ($results as $file => $formatted) {
             echo $isTty ? "\033[1;32m✓\033[0m" : 'F';
         }
 
-        $changed[] = $file;
+        $changed[] = $path;
     }
 
     $processed++;
-}
+});
 
 echo "\n\n";
 
