@@ -58,7 +58,7 @@ class BatchFormatter
      * Format multiple files in batch, minimizing subprocess invocations.
      *
      * @param  array<string, string>  $files  Keyed by file path => content
-     * @return array<string, string>  Formatted content, same keys
+     * @return array<string, string> Formatted content, same keys
      */
     public function formatBatch(array $files): array
     {

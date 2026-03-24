@@ -50,7 +50,7 @@ class TailwindFormatter
      * Sort a batch of class strings in one Prettier call.
      *
      * @param  list<string>  $classStrings
-     * @return list<string>|null  Sorted class strings, or null on failure
+     * @return list<string>|null Sorted class strings, or null on failure
      */
     public function sortClassStringsBatch(string $prettierPath, array $classStrings): ?array
     {
@@ -182,7 +182,7 @@ class TailwindFormatter
      * Sort an array of class strings using Prettier with the Tailwind plugin.
      *
      * @param  list<string>  $classStrings
-     * @return list<string>|null  Sorted class strings, or null on failure
+     * @return list<string>|null Sorted class strings, or null on failure
      */
     private function sortClassStrings(string $prettierPath, array $classStrings): ?array
     {

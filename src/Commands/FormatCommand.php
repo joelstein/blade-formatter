@@ -5,11 +5,10 @@ namespace JoelStein\BladeFormatter\Commands;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Process;
 use JoelStein\BladeFormatter\BatchFormatter;
+use Symfony\Component\Console\Terminal;
 use Symfony\Component\Finder\Finder;
 
 use function Laravel\Prompts\info;
-use function Laravel\Prompts\note;
-use function Laravel\Prompts\progress;
 use function Laravel\Prompts\spin;
 use function Laravel\Prompts\warning;
 
@@ -58,45 +57,79 @@ class FormatCommand extends Command
             'Formatting '.count($files).' file(s)...',
         );
 
-        $changed = 0;
+        $changed = [];
         $unchanged = 0;
         $isTest = (bool) $this->option('test');
+        $warnings = [];
+
+        // Progress dots (Pint-style)
+        $symbolsPerLine = (new Terminal)->getWidth() - 4;
+        $processed = 0;
+
+        $this->newLine();
+        $this->output->write('  ');
 
         foreach ($results as $file => $formatted) {
+            if ($processed > 0 && $processed % $symbolsPerLine === 0) {
+                $this->newLine();
+                $this->output->write('  ');
+            }
+
             foreach ($formatter->getWarnings($file) as $warn) {
-                warning($warn);
+                $warnings[] = $warn;
             }
 
             if ($fileContents[$file] === $formatted) {
+                $this->output->write('<fg=gray>.</>');
                 $unchanged++;
+            } else {
+                if (! $isTest) {
+                    file_put_contents($file, $formatted);
+                }
 
-                continue;
+                if ($isTest) {
+                    $this->output->write('<fg=yellow;options=bold>⨯</>');
+                } else {
+                    $this->output->write('<fg=green;options=bold>✓</>');
+                }
+
+                $changed[] = $file;
             }
 
+            $processed++;
+        }
+
+        $this->newLine(2);
+
+        // Changed file list
+        foreach ($changed as $file) {
             $relativePath = $this->relativePath($file);
 
             if ($isTest) {
                 $this->components->twoColumnDetail($relativePath, '<fg=yellow;options=bold>WOULD CHANGE</>');
             } else {
-                file_put_contents($file, $formatted);
                 $this->components->twoColumnDetail($relativePath, '<fg=green;options=bold>FIXED</>');
             }
+        }
 
-            $changed++;
+        // Warnings
+        foreach ($warnings as $warn) {
+            warning($warn);
         }
 
         $elapsed = round((microtime(true) - $startTime) * 1000);
+        $changedCount = count($changed);
 
         $this->newLine();
 
-        if ($changed === 0) {
+        if ($changedCount === 0) {
             info("All files already formatted. ({$elapsed}ms)");
 
             return self::SUCCESS;
         }
 
         $verb = $isTest ? 'would be formatted' : 'formatted';
-        info("{$changed} file(s) {$verb}, {$unchanged} already formatted. ({$elapsed}ms)");
+        info("{$changedCount} file(s) {$verb}, {$unchanged} already formatted. ({$elapsed}ms)");
 
         return $isTest ? self::FAILURE : self::SUCCESS;
     }

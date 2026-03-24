@@ -18,7 +18,7 @@ class PintFormatter
      * Format multiple PHP chunks in a single Pint invocation.
      *
      * @param  array<string, string>  $phpChunks  Keyed by identifier
-     * @return array<string, string>  Formatted chunks, same keys
+     * @return array<string, string> Formatted chunks, same keys
      */
     public function formatBatch(array $phpChunks, ?string $configPath = null): array
     {

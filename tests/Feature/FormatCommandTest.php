@@ -128,4 +128,51 @@ class FormatCommandTest extends TestCase
         $this->assertStringContainsString('    <p>Hello</p>', $formatted);
         $this->assertStringContainsString('<?php', $formatted);
     }
+
+    #[Test]
+    public function it_shows_checkmark_for_fixed_files(): void
+    {
+        file_put_contents($this->tempDir.'/test.blade.php', "<div>\n<p>Hello</p>\n</div>");
+
+        $this->artisan('blade:format')
+            ->assertSuccessful()
+            ->expectsOutputToContain('✓')
+            ->expectsOutputToContain('FIXED');
+    }
+
+    #[Test]
+    public function it_shows_dot_for_unchanged_files(): void
+    {
+        file_put_contents($this->tempDir.'/test.blade.php', "<div>\n    <p>Hello</p>\n</div>");
+
+        $this->artisan('blade:format')
+            ->assertSuccessful()
+            ->expectsOutputToContain('.');
+    }
+
+    #[Test]
+    public function it_shows_cross_for_test_mode_changes(): void
+    {
+        file_put_contents($this->tempDir.'/test.blade.php', "<div>\n<p>Hello</p>\n</div>");
+
+        $this->artisan('blade:format', ['--test' => true])
+            ->assertFailed()
+            ->expectsOutputToContain('⨯')
+            ->expectsOutputToContain('WOULD CHANGE');
+    }
+
+    #[Test]
+    public function it_shows_mixed_symbols_for_multiple_files(): void
+    {
+        file_put_contents($this->tempDir.'/clean.blade.php', "<div>\n    <p>Clean</p>\n</div>");
+        file_put_contents($this->tempDir.'/dirty.blade.php', "<div>\n<p>Dirty</p>\n</div>");
+
+        $this->artisan('blade:format')
+            ->assertSuccessful()
+            ->expectsOutputToContain('✓');
+
+        // Verify the clean file was left alone and the dirty file was fixed
+        $this->assertSame("<div>\n    <p>Clean</p>\n</div>", file_get_contents($this->tempDir.'/clean.blade.php'));
+        $this->assertSame("<div>\n    <p>Dirty</p>\n</div>", file_get_contents($this->tempDir.'/dirty.blade.php'));
+    }
 }
