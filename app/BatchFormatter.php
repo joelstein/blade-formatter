@@ -399,8 +399,8 @@ class BatchFormatter
     }
 
     /**
-     * Build a temporary Pint config for @php blocks that disables FQCN import
-     * rules (which make no sense in isolated Blade PHP blocks).
+     * Build a temporary Pint config for @php blocks that enforces FQCNs
+     * instead of use imports (which make no sense in isolated Blade PHP blocks).
      */
     private function buildPhpBlockPintConfig(): string
     {
@@ -411,7 +411,7 @@ class BatchFormatter
         }
 
         $config['rules'] = array_merge((array) ($config['rules'] ?? []), [
-            'fully_qualified_strict_types' => false,
+            'fully_qualified_strict_types' => ['import_symbols' => false],
             'global_namespace_import' => false,
         ]);
 
