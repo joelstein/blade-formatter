@@ -102,9 +102,13 @@ class BatchFormatter
                 $blade = $this->reinsertPhpBlocks($blade, $phpBlocks[$path], $formattedPhpBlocks[$path]);
             }
 
-            // Hoist FQCNs from Blade to the SFC PHP section as use statements
             if ($parts['isSfc']) {
+                // Hoist FQCNs from Blade to the SFC PHP section as use statements
                 [$php, $blade] = $this->hoistFqcnsToPhpSection($php, $blade);
+
+                // Re-add any imports that Pint stripped as "unused" but are
+                // referenced by short name in the Blade template
+                $php = $this->restoreBladeImports($parts['php'], $php, $blade);
             }
 
             // Apply indentation (skip Markdown mail templates where whitespace affects rendering)
@@ -401,6 +405,46 @@ class BatchFormatter
         }
 
         return $blade;
+    }
+
+    /**
+     * Re-add use statements that Pint stripped as "unused" but are
+     * referenced by short name in the Blade template.
+     */
+    private function restoreBladeImports(string $originalPhp, string $formattedPhp, string $blade): string
+    {
+        // Find imports that existed before Pint
+        preg_match_all('/^use\s+([\w\\\\]+)\s*;$/m', $originalPhp, $originalUses);
+        // Find imports that survived Pint
+        preg_match_all('/^use\s+([\w\\\\]+)\s*;$/m', $formattedPhp, $currentUses);
+
+        $stripped = array_diff($originalUses[1], $currentUses[1]);
+
+        if ($stripped === []) {
+            return $formattedPhp;
+        }
+
+        $toRestore = [];
+        foreach ($stripped as $fqcn) {
+            $shortName = substr($fqcn, strrpos($fqcn, '\\') + 1);
+            if (preg_match('/\b'.preg_quote($shortName, '/').'\b/', $blade)) {
+                $toRestore[] = 'use '.$fqcn.';';
+            }
+        }
+
+        if ($toRestore === []) {
+            return $formattedPhp;
+        }
+
+        // Insert after the last existing use statement
+        if (preg_match_all('/^use\s+[\w\\\\]+\s*;$/m', $formattedPhp, $allUses, PREG_OFFSET_CAPTURE)) {
+            $lastUse = end($allUses[0]);
+            /** @var array{string, int} $lastUse */
+            $insertPos = $lastUse[1] + strlen($lastUse[0]);
+            $formattedPhp = substr($formattedPhp, 0, $insertPos)."\n".implode("\n", $toRestore).substr($formattedPhp, $insertPos);
+        }
+
+        return $this->sortUseStatements($formattedPhp);
     }
 
     /**

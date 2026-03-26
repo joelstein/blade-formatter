@@ -325,4 +325,43 @@ BLADE;
         $this->assertStringContainsString('instanceof Post', $result);
         $this->assertStringNotContainsString('instanceof App\Models\Post', $result);
     }
+
+    #[Test]
+    public function it_preserves_hoisted_imports_on_subsequent_saves(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: true,
+            enableTailwindSort: false,
+        );
+
+        // Simulate the output of a first save (imports already hoisted, short names in Blade)
+        $input = <<<'BLADE'
+<?php
+
+use App\Enums\Status;
+use Livewire\Component;
+
+new class extends Component {
+    public string $name = '';
+};
+?>
+
+<div>
+    @php
+        $isPending = $status === Status::Pending;
+    @endphp
+</div>
+BLADE;
+
+        $results = $formatter->formatBatch(['/tmp/test.blade.php' => $input]);
+        $result = $results['/tmp/test.blade.php'];
+
+        // Pint should NOT have stripped the import — it's used in Blade
+        $this->assertStringContainsString('use App\Enums\Status;', $result);
+        $this->assertStringContainsString('Status::Pending', $result);
+
+        // No dummy references should leak into the output
+        $this->assertStringNotContainsString('blade-refs', $result);
+        $this->assertStringNotContainsString('::class', $result);
+    }
 }
