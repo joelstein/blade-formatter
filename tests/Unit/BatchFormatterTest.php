@@ -90,4 +90,28 @@ class BatchFormatterTest extends TestCase
         // Content should NOT be indented — Markdown whitespace is significant
         $this->assertSame($content, $results['/tmp/mail.blade.php']);
     }
+
+    #[Test]
+    public function it_preserves_fqcns_in_php_blocks(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: true,
+            enableTailwindSort: false,
+        );
+
+        $input = <<<'BLADE'
+@php
+    $status = $intention->status;
+    $isScheduled = $status === \App\Enums\MassIntentionStatus::Scheduled;
+    $isFulfilled = $status === \App\Enums\MassIntentionStatus::Fulfilled;
+@endphp
+BLADE;
+
+        $results = $formatter->formatBatch(['/tmp/test.blade.php' => $input]);
+        $result = $results['/tmp/test.blade.php'];
+
+        $this->assertStringNotContainsString('use App\\', $result);
+        $this->assertStringContainsString('\App\Enums\MassIntentionStatus::Scheduled', $result);
+        $this->assertStringContainsString('\App\Enums\MassIntentionStatus::Fulfilled', $result);
+    }
 }

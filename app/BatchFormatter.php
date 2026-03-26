@@ -411,7 +411,7 @@ class BatchFormatter
         }
 
         $config['rules'] = array_merge((array) ($config['rules'] ?? []), [
-            'fully_qualified_strict_types' => ['import_symbols' => false],
+            'fully_qualified_strict_types' => false,
             'global_namespace_import' => false,
         ]);
 
