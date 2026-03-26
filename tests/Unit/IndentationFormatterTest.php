@@ -689,4 +689,33 @@ class IndentationFormatterTest extends TestCase
 
         $this->assertSame($expected, $this->indent($input));
     }
+
+    // ── Single-line directives inside multi-line tags ───────────────
+
+    #[Test]
+    public function it_does_not_increase_depth_for_single_line_directive_in_multi_line_tag(): void
+    {
+        $input = <<<'BLADE'
+
+<ui-disclosure
+{{ $attributes->class('group/disclosure') }}
+@if ($expanded === true) open @endif
+data-flux-navlist-group
+>
+<div>Content</div>
+</ui-disclosure>
+BLADE;
+        $expected = <<<'BLADE'
+
+<ui-disclosure
+    {{ $attributes->class('group/disclosure') }}
+    @if ($expanded === true) open @endif
+    data-flux-navlist-group
+>
+    <div>Content</div>
+</ui-disclosure>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
 }

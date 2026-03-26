@@ -254,7 +254,11 @@ class IndentationFormatter
                 }
 
                 if ($isDirectiveLine && in_array($tagDirective, self::OPENING_DIRECTIVES)) {
-                    $directiveDepth++;
+                    $closing = $this->directivePairs[$tagDirective] ?? null;
+                    $isSingleLine = $closing !== null && str_contains($trimmed, $closing);
+                    if (! $isSingleLine) {
+                        $directiveDepth++;
+                    }
                 }
 
                 // Detect multiline attribute value opening (e.g. x-on:click="\n)
