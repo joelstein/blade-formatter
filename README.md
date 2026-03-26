@@ -6,7 +6,7 @@ A tool that formats Blade templates and Livewire Single File Components. Like [L
 
 Blade Formatter runs three formatters in sequence:
 
-1. **PHP formatting** — Formats the PHP section of Livewire SFCs using Laravel Pint
+1. **PHP formatting** — Formats PHP in Livewire SFC sections and `@php`/`@endphp` blocks using Laravel Pint
 2. **Blade indentation** — Auto-indents Blade templates with proper nesting for directives, HTML, and components
 3. **Tailwind class sorting** — Sorts Tailwind CSS classes using Prettier with [prettier-plugin-tailwindcss](https://github.com/tailwindlabs/prettier-plugin-tailwindcss)
 
@@ -57,6 +57,7 @@ Create a `blade-formatter.json` in your project root:
     "paths": ["resources/views"],
     "exclude": [],
     "indent_size": 4,
+    "pint_config_path": null,
     "enable_pint": true,
     "enable_tailwind_sort": true,
     "enable_indentation": true,
@@ -66,7 +67,7 @@ Create a `blade-formatter.json` in your project root:
 
 ## VS Code Extension
 
-The extension provides format-on-save and automatic PHP/Blade language switching in Livewire SFCs. All settings are under `bladeFormatter.*`:
+The extension provides format-on-save and automatic PHP/Blade language switching in Livewire SFCs and `@php`/`@endphp` blocks. All settings are under `bladeFormatter.*`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|

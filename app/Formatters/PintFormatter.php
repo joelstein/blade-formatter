@@ -18,9 +18,10 @@ class PintFormatter
      * Format multiple PHP chunks in a single Pint invocation.
      *
      * @param  array<string, string>  $phpChunks  Keyed by identifier
+     * @param  bool  $ensureClosingTag  Append closing ?> if missing (for SFC sections)
      * @return array<string, string> Formatted chunks, same keys
      */
-    public function formatBatch(array $phpChunks, ?string $configPath = null): array
+    public function formatBatch(array $phpChunks, ?string $configPath = null, bool $ensureClosingTag = true): array
     {
         if ($phpChunks === []) {
             return [];
@@ -59,9 +60,11 @@ class PintFormatter
             foreach ($keyMap as $filename => $key) {
                 $formatted = rtrim((string) file_get_contents($tmpDir.'/'.$filename));
 
-                // Pint strips the closing PHP tag (PSR-12), but SFCs need it
-                if (! str_ends_with($formatted, '?'.'>')) {
-                    $formatted .= "\n".'?'.'>';
+                if ($ensureClosingTag) {
+                    // Pint strips the closing PHP tag (PSR-12), but SFCs need it
+                    if (! str_ends_with($formatted, '?'.'>')) {
+                        $formatted .= "\n".'?'.'>';
+                    }
                 }
 
                 $results[$key] = $formatted;

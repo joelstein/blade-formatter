@@ -205,8 +205,15 @@ class IndentationFormatter
             $openBraces = $this->countChar($strippedLine, '{') + $this->countChar($strippedLine, '[');
             $closeBraces = $this->countChar($strippedLine, '}') + $this->countChar($strippedLine, ']');
 
-            if ($braceDepth > 0 && $closeBraces > $openBraces) {
-                $braceDepth = max(0, $braceDepth - ($closeBraces - $openBraces));
+            // Lines starting with } or ] close a brace level before the line is written,
+            // even if the line also opens a new brace (e.g. "} else {")
+            $leadingClose = $braceDepth > 0 && (bool) preg_match('/^[}\]]/', $trimmed) ? 1 : 0;
+            if ($leadingClose) {
+                $braceDepth--;
+            }
+
+            if ($braceDepth > 0 && ($closeBraces - $leadingClose) > $openBraces) {
+                $braceDepth = max(0, $braceDepth - (($closeBraces - $leadingClose) - $openBraces));
             }
 
             // Handle @case/@default
@@ -260,9 +267,10 @@ class IndentationFormatter
                 $level -= $midblockAdjust;
             }
 
-            // Increase brace depth after writing
-            if ($openBraces > $closeBraces) {
-                $braceDepth += $openBraces - $closeBraces;
+            // Increase brace depth after writing (account for leading close already applied)
+            $remainingOpens = $openBraces - ($closeBraces - $leadingClose);
+            if ($remainingOpens > 0) {
+                $braceDepth += $remainingOpens;
             }
 
             // Check for multi-line tag opening

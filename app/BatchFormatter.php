@@ -53,6 +53,18 @@ class BatchFormatter
             }
         }
 
+        // Collect @php blocks for Pint formatting
+        $phpBlocks = [];
+        if ($this->enablePint) {
+            foreach ($files as $path => $content) {
+                $bladeContent = $parsed[$path]['isSfc'] ? $parsed[$path]['blade'] : $content;
+                $blocks = $this->extractPhpBlocks($bladeContent);
+                if ($blocks !== []) {
+                    $phpBlocks[$path] = $blocks;
+                }
+            }
+        }
+
         $tailwindFormatter = new TailwindFormatter;
         $allClassStrings = [];
         $fileClassStrings = [];
@@ -72,6 +84,9 @@ class BatchFormatter
         // Phase 3: Run Pint and Prettier concurrently
         [$formattedPhp, $sortMap] = $this->runFormatters($phpChunks, $tailwindFormatter, $allClassStrings, $fileClassStrings);
 
+        // Phase 3b: Run Pint on @php blocks
+        $formattedPhpBlocks = $this->formatPhpBlocks($phpBlocks);
+
         // Phase 4: Reassemble each file
         $indentationFormatter = new IndentationFormatter;
         $results = [];
@@ -80,6 +95,11 @@ class BatchFormatter
             $parts = $parsed[$path];
             $php = $formattedPhp[$path] ?? $parts['php'];
             $blade = $parts['isSfc'] ? $parts['blade'] : $originalContent;
+
+            // Reinsert Pint-formatted @php block contents before indentation
+            if (isset($formattedPhpBlocks[$path])) {
+                $blade = $this->reinsertPhpBlocks($blade, $phpBlocks[$path], $formattedPhpBlocks[$path]);
+            }
 
             // Apply indentation
             if ($this->enableIndentation) {
@@ -267,5 +287,134 @@ class BatchFormatter
     public function getAllWarnings(): array
     {
         return $this->warnings;
+    }
+
+    /**
+     * Extract multiline @php/@endphp blocks from Blade content.
+     *
+     * @return list<array{start: int, end: int, code: string}>
+     */
+    private function extractPhpBlocks(string $blade): array
+    {
+        $blocks = [];
+
+        // Match @php (not @php(...)) followed by content and @endphp
+        if (preg_match_all('/@php\s*\n([\s\S]*?)@endphp/', $blade, $matches, PREG_OFFSET_CAPTURE)) {
+            foreach ($matches[1] as $match) {
+                $code = $match[0];
+                $start = $match[1];
+
+                // Skip empty blocks
+                if (trim($code) === '') {
+                    continue;
+                }
+
+                $blocks[] = [
+                    'start' => $start,
+                    'end' => $start + strlen($code),
+                    'code' => $code,
+                ];
+            }
+        }
+
+        return $blocks;
+    }
+
+    /**
+     * Format @php block contents with Pint.
+     *
+     * @param  array<string, list<array{start: int, end: int, code: string}>>  $phpBlocks
+     * @return array<string, array<int, string>>  Formatted code per file, indexed same as blocks
+     */
+    private function formatPhpBlocks(array $phpBlocks): array
+    {
+        if ($phpBlocks === []) {
+            return [];
+        }
+
+        // Collect all blocks into a single Pint batch
+        $chunks = [];
+        $keyMap = [];
+        foreach ($phpBlocks as $path => $blocks) {
+            foreach ($blocks as $index => $block) {
+                $key = $path.':'.$index;
+                // Dedent the code to column 0 so Pint formats cleanly
+                $chunks[$key] = "<?php\n".$this->dedent($block['code']);
+                $keyMap[$key] = ['path' => $path, 'index' => $index];
+            }
+        }
+
+        try {
+            $pintFormatter = new PintFormatter;
+            $formatted = $pintFormatter->formatBatch($chunks, $this->pintConfigPath, ensureClosingTag: false);
+        } catch (\Throwable $e) {
+            foreach (array_keys($phpBlocks) as $path) {
+                $this->warnings[$path][] = 'Pint skipped for @php blocks: '.$e->getMessage();
+            }
+
+            return [];
+        }
+
+        // Group results back by file
+        $results = [];
+        foreach ($formatted as $key => $formattedCode) {
+            $info = $keyMap[$key];
+            // Strip the <?php prefix we added
+            $code = (string) preg_replace('/^<\?php\s*\n?/', '', $formattedCode);
+            $code = rtrim($code)."\n";
+            $results[$info['path']][$info['index']] = $code;
+        }
+
+        return $results;
+    }
+
+    /**
+     * Reinsert Pint-formatted @php block contents into the Blade template.
+     * Processes blocks in reverse order to preserve string offsets.
+     *
+     * @param  list<array{start: int, end: int, code: string}>  $blocks
+     * @param  array<int, string>  $formattedBlocks
+     */
+    private function reinsertPhpBlocks(string $blade, array $blocks, array $formattedBlocks): string
+    {
+        // Process in reverse to preserve offsets
+        for ($i = count($blocks) - 1; $i >= 0; $i--) {
+            if (! isset($formattedBlocks[$i])) {
+                continue;
+            }
+
+            $block = $blocks[$i];
+            $blade = substr($blade, 0, $block['start'])
+                .$formattedBlocks[$i]
+                .substr($blade, $block['end']);
+        }
+
+        return $blade;
+    }
+
+    /**
+     * Remove the common leading whitespace from all non-empty lines.
+     */
+    private function dedent(string $code): string
+    {
+        $lines = explode("\n", $code);
+        $minIndent = PHP_INT_MAX;
+
+        foreach ($lines as $line) {
+            if (trim($line) === '') {
+                continue;
+            }
+            $indent = strlen($line) - strlen(ltrim($line));
+            $minIndent = min($minIndent, $indent);
+        }
+
+        if ($minIndent === 0 || $minIndent === PHP_INT_MAX) {
+            return $code;
+        }
+
+        return implode("\n", array_map(
+            fn (string $line): string => trim($line) === '' ? '' : substr($line, $minIndent),
+            $lines,
+        ));
     }
 }

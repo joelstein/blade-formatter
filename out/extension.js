@@ -60,11 +60,19 @@ function getPhpBlocks(document) {
     }
     const blocks = [];
     const text = document.getText();
-    const regex = /<\?php[\s\S]*?\?>/g;
+    // Match <?php ... ?> blocks (SFC sections)
+    const sfcRegex = /<\?php[\s\S]*?\?>/g;
     let match;
-    while ((match = regex.exec(text)) !== null) {
+    while ((match = sfcRegex.exec(text)) !== null) {
         blocks.push({ start: match.index, end: match.index + match[0].length });
     }
+    // Match multiline @php ... @endphp blocks
+    const phpBlockRegex = /@php\s*\n[\s\S]*?@endphp/g;
+    while ((match = phpBlockRegex.exec(text)) !== null) {
+        blocks.push({ start: match.index, end: match.index + match[0].length });
+    }
+    // Sort by position for consistent lookups
+    blocks.sort((a, b) => a.start - b.start);
     blockCache.set(key, { version: document.version, blocks });
     return blocks;
 }

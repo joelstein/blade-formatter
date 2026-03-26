@@ -33,12 +33,22 @@ function getPhpBlocks(document: vscode.TextDocument): PhpBlock[] {
 
     const blocks: PhpBlock[] = [];
     const text = document.getText();
-    const regex = /<\?php[\s\S]*?\?>/g;
-    let match: RegExpExecArray | null;
 
-    while ((match = regex.exec(text)) !== null) {
+    // Match <?php ... ?> blocks (SFC sections)
+    const sfcRegex = /<\?php[\s\S]*?\?>/g;
+    let match: RegExpExecArray | null;
+    while ((match = sfcRegex.exec(text)) !== null) {
         blocks.push({ start: match.index, end: match.index + match[0].length });
     }
+
+    // Match multiline @php ... @endphp blocks
+    const phpBlockRegex = /@php\s*\n[\s\S]*?@endphp/g;
+    while ((match = phpBlockRegex.exec(text)) !== null) {
+        blocks.push({ start: match.index, end: match.index + match[0].length });
+    }
+
+    // Sort by position for consistent lookups
+    blocks.sort((a, b) => a.start - b.start);
 
     blockCache.set(key, { version: document.version, blocks });
     return blocks;
