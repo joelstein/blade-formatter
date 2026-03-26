@@ -612,7 +612,7 @@ class IndentationFormatterTest extends TestCase
     public function it_aligns_endif_with_if_when_html_tag_opens_between_them(): void
     {
         $input = "\n@if (\$wrap)\n<div>\n@endif\n<p>Content</p>\n@if (\$wrap)\n</div>\n@endif";
-        $expected = "\n@if (\$wrap)\n    <div>\n@endif\n    <p>Content</p>\n    @if (\$wrap)\n    </div>\n@endif";
+        $expected = "\n@if (\$wrap)\n    <div>\n@endif\n<p>Content</p>\n@if (\$wrap)\n    </div>\n@endif";
 
         $this->assertSame($expected, $this->indent($input));
     }
@@ -621,7 +621,7 @@ class IndentationFormatterTest extends TestCase
     public function it_aligns_endif_in_nested_conditional_wrap(): void
     {
         $input = "\n@if (\$outer)\n@if (\$wrap)\n<div>\n@endif\n<p>Content</p>\n@if (\$wrap)\n</div>\n@endif\n@endif";
-        $expected = "\n@if (\$outer)\n    @if (\$wrap)\n        <div>\n    @endif\n        <p>Content</p>\n        @if (\$wrap)\n        </div>\n    @endif\n@endif";
+        $expected = "\n@if (\$outer)\n    @if (\$wrap)\n        <div>\n    @endif\n    <p>Content</p>\n    @if (\$wrap)\n        </div>\n    @endif\n@endif";
 
         $this->assertSame($expected, $this->indent($input));
     }

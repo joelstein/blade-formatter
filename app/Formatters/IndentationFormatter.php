@@ -79,6 +79,7 @@ class IndentationFormatter
         $inMultiLineTag = false;
         $multiLineTagIsVoid = false;
         $multiLineTagIsSelfClosing = false;
+        $multiLineTagName = '';
         $braceDepth = 0;
         $directiveDepth = 0;
         $tagBraceOffset = 0;
@@ -87,6 +88,10 @@ class IndentationFormatter
         $inCaseBlock = false;
         /** @var list<int> */
         $directiveStack = [];
+        /** @var list<string> Tag names of HTML elements opened inside closed directive blocks */
+        $forgottenClosingTags = [];
+        /** @var list<string> Stack of currently open HTML tag names for tracking crossed nesting */
+        $htmlTagStack = [];
         $preserveBlock = null;
         $indentPreserveBlock = null;
         $indentPreserveLevel = 0;
@@ -259,6 +264,9 @@ class IndentationFormatter
 
                     if (! $multiLineTagIsSelfClosing && ! $multiLineTagIsVoid) {
                         $level++;
+                        if ($multiLineTagName !== '') {
+                            $htmlTagStack[] = $multiLineTagName;
+                        }
                     }
 
                     // Account for closing tags on the same line as the tag close
@@ -336,6 +344,18 @@ class IndentationFormatter
 
             // Calculate indent adjustments
             $closingAdjust = $this->countClosingAdjustments($trimmed);
+
+            // Consume forgotten closing tags from crossed HTML/Blade nesting
+            // (HTML tags opened inside a directive block that was closed by @endif)
+            if ($forgottenClosingTags !== [] && $closingAdjust < 0 && preg_match('/^<\/([\w:.-]+)/', $trimmed, $closingTagMatch)) {
+                $closingTagName = strtolower($closingTagMatch[1]);
+                $forgottenIndex = array_search($closingTagName, $forgottenClosingTags);
+                if ($forgottenIndex !== false) {
+                    $closingAdjust = 0;
+                    array_splice($forgottenClosingTags, $forgottenIndex, 1);
+                }
+            }
+
             $midblockAdjust = $this->isMidblockLine($trimmed) ? -1 : 0;
 
             $level = max(0, $level + $closingAdjust + $midblockAdjust);
@@ -356,6 +376,17 @@ class IndentationFormatter
             if ($closingAdjust < 0 && preg_match('/^@end\w+/', $trimmed) && $directiveStack !== []) {
                 $stackLevel = array_pop($directiveStack);
                 $writeLevel = min($level, $stackLevel);
+
+                // When HTML tags inflated the level beyond the directive's scope,
+                // restore the level and track the forgotten closing tags by name
+                if ($level > $stackLevel) {
+                    $excess = $level - $stackLevel;
+                    for ($k = 0; $k < $excess && $htmlTagStack !== []; $k++) {
+                        $forgottenClosingTags[] = array_pop($htmlTagStack);
+                    }
+                    $level = $stackLevel;
+                    $writeLevel = $stackLevel;
+                }
             } elseif ($midblockAdjust < 0 && $directiveStack !== []) {
                 $stackLevel = end($directiveStack);
                 $writeLevel = min($level, $stackLevel);
@@ -392,11 +423,13 @@ class IndentationFormatter
                     $inMultiLineTag = true;
                     if ($isDynamicTag || ! isset($multiLineMatch[1])) {
                         $multiLineTagIsVoid = false;
+                        $multiLineTagName = '';
                     } else {
                         $tagName = strtolower($multiLineMatch[1]);
                         $baseTag = explode(':', $tagName)[0] ?: $tagName;
                         $multiLineTagIsVoid = in_array($tagName, self::VOID_ELEMENTS) || in_array($baseTag, self::VOID_ELEMENTS)
                             || in_array($tagName, self::NO_INDENT_ELEMENTS);
+                        $multiLineTagName = $tagName;
                     }
                     $multiLineTagIsSelfClosing = false;
 
@@ -410,11 +443,27 @@ class IndentationFormatter
                 }
             }
 
+            // Track HTML tag closes for the tag stack (closing tags at line start)
+            if ($closingAdjust < 0 && preg_match('/^<\/([\w:.-]+)/', $trimmed)) {
+                array_pop($htmlTagStack);
+            }
+
             // Apply opening adjustments after writing
             // Lines starting with text content have inline tags that shouldn't affect indentation
             $preOpeningLevel = $level;
             $startsWithTag = str_starts_with($trimmed, '<');
-            $level = max(0, $level + $this->countOpeningAdjustments($trimmed, $startsWithTag));
+            $openingAdjust = $this->countOpeningAdjustments($trimmed, $startsWithTag);
+            $level = max(0, $level + $openingAdjust);
+
+            // Track HTML tag opens for the tag stack
+            if ($openingAdjust > 0 && preg_match_all('/<([\w:.-]+)/', $trimmed, $tagOpenMatches)) {
+                // Push net new tag opens (opens minus closes on the same line)
+                $netOpens = $openingAdjust;
+                for ($k = count($tagOpenMatches[1]) - 1; $k >= 0 && $netOpens > 0; $k--) {
+                    $htmlTagStack[] = strtolower($tagOpenMatches[1][$k]);
+                    $netOpens--;
+                }
+            }
 
             // Track opening directive write level for stack-based alignment
             if (preg_match('/^@(\w+)/', $trimmed, $directiveStackMatch)) {
