@@ -344,15 +344,21 @@ class BatchFormatter
             }
         }
 
+        // Build a Pint config that disables FQCN-to-import rules, which make no
+        // sense inside @php blocks (there's no persistent namespace/use context)
+        $phpBlockConfig = $this->buildPhpBlockPintConfig();
+
         try {
             $pintFormatter = new PintFormatter;
-            $formatted = $pintFormatter->formatBatch($chunks, $this->pintConfigPath, ensureClosingTag: false);
+            $formatted = $pintFormatter->formatBatch($chunks, $phpBlockConfig, ensureClosingTag: false);
         } catch (\Throwable $e) {
             foreach (array_keys($phpBlocks) as $path) {
                 $this->warnings[$path][] = 'Pint skipped for @php blocks: '.$e->getMessage();
             }
 
             return [];
+        } finally {
+            @unlink($phpBlockConfig);
         }
 
         // Group results back by file
@@ -390,6 +396,29 @@ class BatchFormatter
         }
 
         return $blade;
+    }
+
+    /**
+     * Build a temporary Pint config for @php blocks that disables FQCN import
+     * rules (which make no sense in isolated Blade PHP blocks).
+     */
+    private function buildPhpBlockPintConfig(): string
+    {
+        $config = [];
+
+        if ($this->pintConfigPath !== null && file_exists($this->pintConfigPath)) {
+            $config = (array) json_decode((string) file_get_contents($this->pintConfigPath), true);
+        }
+
+        $config['rules'] = array_merge((array) ($config['rules'] ?? []), [
+            'fully_qualified_strict_types' => false,
+            'global_namespace_import' => false,
+        ]);
+
+        $tmpConfig = sys_get_temp_dir().'/blade-fmt-pint-'.uniqid().'.json';
+        file_put_contents($tmpConfig, json_encode($config));
+
+        return $tmpConfig;
     }
 
     /**
