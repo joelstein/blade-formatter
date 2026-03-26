@@ -13,6 +13,7 @@ use function Laravel\Prompts\warning;
 class DefaultCommand extends Command
 {
     private const EXCLUDE_DEFAULTS = [
+        'flux/icon',
         'vendor/mail',
         'vendor/notifications',
     ];
@@ -32,13 +33,17 @@ class DefaultCommand extends Command
 
         $config = $this->loadConfig();
 
+        $indentSize = $config['indent_size'] ?? 4;
+        $pintConfigPath = $config['pint_config_path'] ?? null;
+        $prettierPath = $config['prettier_path'] ?? 'node_modules/.bin/prettier';
+
         $formatter = new BatchFormatter(
-            enablePint: $config['enable_pint'] ?? true,
-            enableTailwindSort: $config['enable_tailwind_sort'] ?? true,
-            enableIndentation: $config['enable_indentation'] ?? true,
-            indentSize: $config['indent_size'] ?? 4,
-            pintConfigPath: $config['pint_config_path'] ?? null,
-            prettierPath: $config['prettier_path'] ?? 'node_modules/.bin/prettier',
+            enablePint: (bool) ($config['enable_pint'] ?? true),
+            enableTailwindSort: (bool) ($config['enable_tailwind_sort'] ?? true),
+            enableIndentation: (bool) ($config['enable_indentation'] ?? true),
+            indentSize: is_int($indentSize) ? $indentSize : 4,
+            pintConfigPath: is_string($pintConfigPath) ? $pintConfigPath : null,
+            prettierPath: is_string($prettierPath) ? $prettierPath : 'node_modules/.bin/prettier',
         );
 
         $files = $this->resolveFiles($config);
@@ -177,6 +182,7 @@ class DefaultCommand extends Command
             return [];
         }
 
+        /** @var array<string, mixed> $config */
         return $config;
     }
 
@@ -207,7 +213,7 @@ class DefaultCommand extends Command
             fn (string $p): string => is_dir($p) ? $p : $cwd.'/'.$p,
             $defaultPaths,
         );
-        $absolutePaths = array_filter($absolutePaths, 'is_dir');
+        $absolutePaths = array_values(array_filter($absolutePaths, 'is_dir'));
 
         if (empty($absolutePaths)) {
             return [];
@@ -295,7 +301,7 @@ class DefaultCommand extends Command
         $cwd = (string) getcwd();
         $files = [];
         foreach ($output as $line) {
-            if (str_ends_with($line, '.blade.php') && $line !== '') {
+            if ($line !== '' && str_ends_with($line, '.blade.php')) {
                 $files[] = $cwd.'/'.$line;
             }
         }

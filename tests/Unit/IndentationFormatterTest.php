@@ -245,6 +245,24 @@ class IndentationFormatterTest extends TestCase
         $this->assertSame($expected, $this->indent($input));
     }
 
+    #[Test]
+    public function it_indents_directive_content_inside_multi_line_tags(): void
+    {
+        $input = "\n<a\n@if(\$linked)\nhref=\"https://example.com\"\ntarget=\"_blank\"\n@endif\nclass=\"btn\"\n>\nlink\n</a>";
+        $expected = "\n<a\n    @if(\$linked)\n        href=\"https://example.com\"\n        target=\"_blank\"\n    @endif\n    class=\"btn\"\n>\n    link\n</a>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_if_else_inside_multi_line_tags(): void
+    {
+        $input = "\n<a\n@if(\$linked)\nhref=\"https://example.com\"\n@else\nhref=\"#\"\n@endif\nclass=\"btn\"\n>\nlink\n</a>";
+        $expected = "\n<a\n    @if(\$linked)\n        href=\"https://example.com\"\n    @else\n        href=\"#\"\n    @endif\n    class=\"btn\"\n>\n    link\n</a>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
     // ── Alpine x-data indentation ────────────────────────────────────
 
     #[Test]

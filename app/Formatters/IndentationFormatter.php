@@ -65,6 +65,7 @@ class IndentationFormatter
         $multiLineTagIsVoid = false;
         $multiLineTagIsSelfClosing = false;
         $braceDepth = 0;
+        $directiveDepth = 0;
         $inCaseBlock = false;
         $preserveBlock = null;
 
@@ -129,23 +130,40 @@ class IndentationFormatter
                     $braceDepth = max(0, $braceDepth - ($closeBraces - $openBraces));
                 }
 
-                $closesTag = ! $braceDepth && (str_ends_with($trimmed, '>') || str_ends_with($trimmed, '/>'));
-                $startsWithClosingBracket = (bool) preg_match('/^\/?>/', $trimmed);
+                // Detect Blade directives inside multi-line tags (e.g. @if/@endif for conditional attributes)
+                $isDirectiveLine = (bool) preg_match('/^@(\w+)/', $trimmed, $tagDirectiveMatch);
+                $tagDirective = $isDirectiveLine ? '@'.$tagDirectiveMatch[1] : null;
 
-                if ($closesTag && $startsWithClosingBracket) {
-                    $result[] = str_repeat($indent, $level).$trimmed;
+                if ($isDirectiveLine && in_array($tagDirective, $this->closingDirectives)) {
+                    $directiveDepth = max(0, $directiveDepth - 1);
+                    $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth).$trimmed;
+                } elseif ($isDirectiveLine && $this->isMidblockLine($trimmed)) {
+                    $result[] = str_repeat($indent, $level + 1 + $braceDepth + max(0, $directiveDepth - 1)).$trimmed;
                 } else {
-                    $result[] = str_repeat($indent, $level + 1 + $braceDepth).$trimmed;
+                    $closesTag = ! $braceDepth && (str_ends_with($trimmed, '>') || str_ends_with($trimmed, '/>'));
+                    $startsWithClosingBracket = (bool) preg_match('/^\/?>/', $trimmed);
+
+                    if ($closesTag && $startsWithClosingBracket) {
+                        $result[] = str_repeat($indent, $level).$trimmed;
+                    } else {
+                        $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth).$trimmed;
+                    }
+                }
+
+                if ($isDirectiveLine && in_array($tagDirective, self::OPENING_DIRECTIVES)) {
+                    $directiveDepth++;
                 }
 
                 if ($openBraces > $closeBraces) {
                     $braceDepth += $openBraces - $closeBraces;
                 }
 
-                if ($closesTag) {
+                $closesTag = ! $braceDepth && (str_ends_with($trimmed, '>') || str_ends_with($trimmed, '/>'));
+                if ($closesTag && ! $isDirectiveLine) {
                     $multiLineTagIsSelfClosing = str_ends_with($trimmed, '/>');
                     $inMultiLineTag = false;
                     $braceDepth = 0;
+                    $directiveDepth = 0;
 
                     if (! $multiLineTagIsSelfClosing && ! $multiLineTagIsVoid) {
                         $level++;
