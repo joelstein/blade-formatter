@@ -332,44 +332,33 @@ class BatchFormatter
             return [];
         }
 
-        // Collect all blocks into a single Pint batch
+        // Collect all blocks into a single batch
         $chunks = [];
         $keyMap = [];
         foreach ($phpBlocks as $path => $blocks) {
             foreach ($blocks as $index => $block) {
                 $key = $path.':'.$index;
-                // Dedent the code to column 0 so Pint formats cleanly
-                $chunks[$key] = "<?php\n".$this->dedent($block['code']);
+                $chunks[$key] = $this->dedent($block['code']);
                 $keyMap[$key] = ['path' => $path, 'index' => $index];
             }
         }
 
-        // Build a Pint config that disables FQCN-to-import rules, which make no
-        // sense inside @php blocks (there's no persistent namespace/use context)
-        $phpBlockConfig = $this->buildPhpBlockPintConfig();
-
         try {
             $pintFormatter = new PintFormatter;
-            $formatted = $pintFormatter->formatBatch($chunks, $phpBlockConfig, ensureClosingTag: false);
+            $formatted = $pintFormatter->formatPhpBlockBatch($chunks, $this->pintConfigPath);
         } catch (\Throwable $e) {
             foreach (array_keys($phpBlocks) as $path) {
                 $this->warnings[$path][] = 'Pint skipped for @php blocks: '.$e->getMessage();
             }
 
             return [];
-        } finally {
-            @unlink($phpBlockConfig);
         }
 
         // Group results back by file
         $results = [];
-        foreach ($formatted as $key => $formattedCode) {
+        foreach ($formatted as $key => $code) {
             $info = $keyMap[$key];
-            // Strip the <?php prefix we added
-            $code = (string) preg_replace('/^<\?php\s*\n?/', '', $formattedCode);
-            $code = $this->expandUseStatements($code);
-            $code = rtrim($code)."\n";
-            $results[$info['path']][$info['index']] = $code;
+            $results[$info['path']][$info['index']] = rtrim($code)."\n";
         }
 
         return $results;
@@ -397,68 +386,6 @@ class BatchFormatter
         }
 
         return $blade;
-    }
-
-    /**
-     * Expand use statements in @php block code back to FQCNs.
-     *
-     * Use statements don't make sense in @php blocks since there's no persistent
-     * namespace context. This replaces short class names with their fully qualified
-     * equivalents and removes the use statements.
-     */
-    private function expandUseStatements(string $code): string
-    {
-        // Parse use statements: use Foo\Bar; or use Foo\Bar as Baz;
-        if (! preg_match_all('/^use\s+([\w\\\\]+)(?:\s+as\s+(\w+))?\s*;$/m', $code, $matches, PREG_SET_ORDER)) {
-            return $code;
-        }
-
-        $replacements = [];
-        foreach ($matches as $match) {
-            $fqcn = $match[1];
-            $alias = $match[2] ?? null;
-            $shortName = $alias ?? substr($fqcn, strrpos($fqcn, '\\') + 1);
-            $replacements[$shortName] = '\\'.$fqcn;
-
-            // Remove the use statement and any trailing blank line
-            $code = str_replace($match[0]."\n\n", '', $code);
-            $code = str_replace($match[0]."\n", '', $code);
-            $code = str_replace($match[0], '', $code);
-        }
-
-        // Replace short names with FQCNs (only when used as class references)
-        foreach ($replacements as $shortName => $fqcn) {
-            $code = (string) preg_replace(
-                '/\b'.preg_quote($shortName, '/').'(?=\s*::|\s*\$)/',
-                $fqcn,
-                $code,
-            );
-        }
-
-        return $code;
-    }
-
-    /**
-     * Build a temporary Pint config for @php blocks that disables FQCN import
-     * rules (which make no sense in isolated Blade PHP blocks).
-     */
-    private function buildPhpBlockPintConfig(): string
-    {
-        $config = [];
-
-        if ($this->pintConfigPath !== null && file_exists($this->pintConfigPath)) {
-            $config = (array) json_decode((string) file_get_contents($this->pintConfigPath), true);
-        }
-
-        $config['rules'] = array_merge((array) ($config['rules'] ?? []), [
-            'fully_qualified_strict_types' => false,
-            'global_namespace_import' => false,
-        ]);
-
-        $tmpConfig = sys_get_temp_dir().'/blade-fmt-pint-'.uniqid().'.json';
-        file_put_contents($tmpConfig, json_encode($config));
-
-        return $tmpConfig;
     }
 
     /**
