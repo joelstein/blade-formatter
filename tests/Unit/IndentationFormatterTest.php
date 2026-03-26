@@ -340,6 +340,15 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_indents_ternary_operators_in_multiline_attribute_values(): void
+    {
+        $input = "\n<form\nx-on:submit.prevent=\"\ncondition\n? doA()\n: doB();\n\"\n>";
+        $expected = "\n<form\n    x-on:submit.prevent=\"\n        condition\n            ? doA()\n            : doB();\n    \"\n>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_indents_continuation_lines_inside_braces(): void
     {
         $input = "\n{!! t('test', [\n'key' => 'value'\n. 'more',\n]) !!}";
@@ -490,6 +499,95 @@ class IndentationFormatterTest extends TestCase
     {
         $input = "\n@props([\n'name' => '{{ \$default }}',\n])";
         $expected = "\n@props([\n    'name' => '{{ \$default }}',\n])";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── Inline tags in text content ─────────────────────────────────
+
+    #[Test]
+    public function it_does_not_indent_for_inline_tags_that_wrap_in_text(): void
+    {
+        $input = "\n<li>\nClick <x-ui>Edit Schedule</x-ui>, select the range of hours\nyou want to close, and click <x-ui>Edit Selected\nHours</x-ui>.\n</li>";
+        $expected = "\n<li>\n    Click <x-ui>Edit Schedule</x-ui>, select the range of hours\n    you want to close, and click <x-ui>Edit Selected\n    Hours</x-ui>.\n</li>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── Dynamic tag names ───────────────────────────────────────────
+
+    #[Test]
+    public function it_indents_content_inside_dynamic_tags(): void
+    {
+        $input = "\n<{{ \$as }}>\n{{ \$slot }}\n</{{ \$as }}>";
+        $expected = "\n<{{ \$as }}>\n    {{ \$slot }}\n</{{ \$as }}>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_multi_line_dynamic_tag_with_attributes_class(): void
+    {
+        $input = "\n<{{ \$as }} {{ \$attributes->class([\n'border-l-4 bg-gray-50',\n'mt-0' => \$as === 'div',\n]) }}>\n{{ \$slot }}\n</{{ \$as }}>";
+        $expected = "\n<{{ \$as }} {{ \$attributes->class([\n    'border-l-4 bg-gray-50',\n    'mt-0' => \$as === 'div',\n]) }}>\n    {{ \$slot }}\n</{{ \$as }}>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_handles_single_line_dynamic_tags(): void
+    {
+        $input = "\n<div>\n<{{ \$as }}>Content</{{ \$as }}>\n</div>";
+        $expected = "\n<div>\n    <{{ \$as }}>Content</{{ \$as }}>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_handles_self_closing_dynamic_tags(): void
+    {
+        $input = "\n<div>\n<{{ \$tag }} />\n<p>After</p>\n</div>";
+        $expected = "\n<div>\n    <{{ \$tag }} />\n    <p>After</p>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_handles_dynamic_tags_with_simple_attributes(): void
+    {
+        $input = "\n<{{ \$as }}\nclass=\"foo\"\n>\n{{ \$slot }}\n</{{ \$as }}>";
+        $expected = "\n<{{ \$as }}\n    class=\"foo\"\n>\n    {{ \$slot }}\n</{{ \$as }}>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── Conditional wrapping (crossed HTML/Blade nesting) ───────────
+
+    #[Test]
+    public function it_aligns_endif_with_if_when_html_tag_opens_between_them(): void
+    {
+        $input = "\n@if (\$wrap)\n<div>\n@endif\n<p>Content</p>\n@if (\$wrap)\n</div>\n@endif";
+        $expected = "\n@if (\$wrap)\n    <div>\n@endif\n    <p>Content</p>\n    @if (\$wrap)\n    </div>\n@endif";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_aligns_endif_in_nested_conditional_wrap(): void
+    {
+        $input = "\n@if (\$outer)\n@if (\$wrap)\n<div>\n@endif\n<p>Content</p>\n@if (\$wrap)\n</div>\n@endif\n@endif";
+        $expected = "\n@if (\$outer)\n    @if (\$wrap)\n        <div>\n    @endif\n        <p>Content</p>\n        @if (\$wrap)\n        </div>\n    @endif\n@endif";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── No-indent elements ──────────────────────────────────────────
+
+    #[Test]
+    public function it_does_not_indent_children_of_html_tag(): void
+    {
+        $input = "\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n<title>Test</title>\n</head>\n<body>\n<div>\n<p>Hello</p>\n</div>\n</body>\n</html>";
+        $expected = "\n<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n    <meta charset=\"utf-8\">\n    <title>Test</title>\n</head>\n<body>\n    <div>\n        <p>Hello</p>\n    </div>\n</body>\n</html>";
 
         $this->assertSame($expected, $this->indent($input));
     }

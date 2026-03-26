@@ -10,6 +10,9 @@ class IndentationFormatter
         'link', 'meta', 'param', 'source', 'track', 'wbr',
     ];
 
+    /** Elements whose children are not indented */
+    private const NO_INDENT_ELEMENTS = ['html'];
+
     /** Blade directives that open a block */
     private const OPENING_DIRECTIVES = [
         '@if', '@foreach', '@for', '@while', '@switch',
@@ -74,6 +77,8 @@ class IndentationFormatter
         $tagBraceOffset = 0;
         $inMultiLineAttrValue = false;
         $inCaseBlock = false;
+        /** @var list<int> */
+        $directiveStack = [];
         $preserveBlock = null;
         $indentPreserveBlock = null;
         $indentPreserveLevel = 0;
@@ -186,7 +191,9 @@ class IndentationFormatter
                         $inMultiLineAttrValue = false;
                     } else {
                         // Content inside multiline attribute value — one extra indent
-                        $result[] = str_repeat($indent, $level + 2 + $braceDepth + $directiveDepth + $tagBraceOffset).$trimmed;
+                        // Ternary continuation lines (? or :) get an additional indent
+                        $ternary = preg_match('/^[?:](?:\s|$)/', $trimmed) ? 1 : 0;
+                        $result[] = str_repeat($indent, $level + 2 + $braceDepth + $directiveDepth + $tagBraceOffset + $ternary).$trimmed;
                     }
 
                     if ($openBraces > $closeBraces) {
@@ -246,7 +253,7 @@ class IndentationFormatter
                     }
 
                     // Account for closing tags on the same line as the tag close
-                    preg_match_all('/<\/([\w:.-]+)\s*>/', $trimmed, $inlineCloseMatches);
+                    preg_match_all('/<\/(?:[\w:.-]+|\{\{.*?\}\})\s*>/', $trimmed, $inlineCloseMatches);
                     foreach ($inlineCloseMatches[0] as $_match) {
                         $level = max(0, $level - 1);
                     }
@@ -327,7 +334,18 @@ class IndentationFormatter
             // Continuation lines (starting with . operator) get an extra indent
             $continuation = $braceDepth > 0 && preg_match('/^\.(?:\s|$)/', $trimmed) ? 1 : 0;
 
-            $result[] = str_repeat($indent, $level + $braceDepth + $continuation).$trimmed;
+            // For closing/midblock Blade directives, align with their opening directive
+            // using min(currentLevel, stackLevel) to handle crossed HTML/Blade nesting
+            $writeLevel = $level;
+            if ($closingAdjust < 0 && preg_match('/^@end\w+/', $trimmed) && $directiveStack !== []) {
+                $stackLevel = array_pop($directiveStack);
+                $writeLevel = min($level, $stackLevel);
+            } elseif ($midblockAdjust < 0 && $directiveStack !== []) {
+                $stackLevel = end($directiveStack);
+                $writeLevel = min($level, $stackLevel);
+            }
+
+            $result[] = str_repeat($indent, $writeLevel + $braceDepth + $continuation).$trimmed;
 
             // Undo midblock adjustment
             if ($midblockAdjust < 0) {
@@ -340,16 +358,28 @@ class IndentationFormatter
                 $braceDepth += $remainingOpens;
             }
 
-            // Check for multi-line tag opening
-            if (preg_match('/^<([\w:.-]+)/', $trimmed, $multiLineMatch) && ! str_starts_with($trimmed, '</')) {
-                $withoutTag = (string) preg_replace('/<[\w:.-]+/', '', $trimmed, 1);
-                $hasClosingBracket = (bool) preg_match('/\/?>/', $withoutTag);
+            // Check for multi-line tag opening (static tags like <div or dynamic tags like <{{ $var }})
+            $isDynamicTag = preg_match('/^<\{\{/', $trimmed) && ! str_starts_with($trimmed, '</');
+            $multiLineMatch = [];
+            if (($isDynamicTag || preg_match('/^<([\w:.-]+)/', $trimmed, $multiLineMatch)) && ! str_starts_with($trimmed, '</')) {
+                $withoutTag = $isDynamicTag
+                    ? (string) preg_replace('/^<\{\{.*?\}\}/', '', $trimmed, 1)
+                    : (string) preg_replace('/<[\w:.-]+/', '', $trimmed, 1);
+                $cleanedWithoutTag = str_replace(['->', '=>', '>='], '  ', $withoutTag);
+                $cleanedWithoutTag = (string) preg_replace('/\{\{.*?\}\}|\{!!.*?!!\}/', '', $cleanedWithoutTag);
+                $cleanedWithoutTag = (string) preg_replace('/"[^"]*"|\'[^\']*\'/', '', $cleanedWithoutTag);
+                $hasClosingBracket = (bool) preg_match('/\/?>/', $cleanedWithoutTag);
 
                 if (! $hasClosingBracket) {
                     $inMultiLineTag = true;
-                    $tagName = strtolower($multiLineMatch[1]);
-                    $baseTag = explode(':', $tagName)[0] ?: $tagName;
-                    $multiLineTagIsVoid = in_array($tagName, self::VOID_ELEMENTS) || in_array($baseTag, self::VOID_ELEMENTS);
+                    if ($isDynamicTag || ! isset($multiLineMatch[1])) {
+                        $multiLineTagIsVoid = false;
+                    } else {
+                        $tagName = strtolower($multiLineMatch[1]);
+                        $baseTag = explode(':', $tagName)[0] ?: $tagName;
+                        $multiLineTagIsVoid = in_array($tagName, self::VOID_ELEMENTS) || in_array($baseTag, self::VOID_ELEMENTS)
+                            || in_array($tagName, self::NO_INDENT_ELEMENTS);
+                    }
                     $multiLineTagIsSelfClosing = false;
 
                     // When the tag-opening line itself opens braces (e.g. <div x-data="{
@@ -363,13 +393,30 @@ class IndentationFormatter
             }
 
             // Apply opening adjustments after writing
-            $level = max(0, $level + $this->countOpeningAdjustments($trimmed));
+            // Lines starting with text content have inline tags that shouldn't affect indentation
+            $preOpeningLevel = $level;
+            $startsWithTag = str_starts_with($trimmed, '<');
+            $level = max(0, $level + $this->countOpeningAdjustments($trimmed, $startsWithTag));
+
+            // Track opening directive write level for stack-based alignment
+            if (preg_match('/^@(\w+)/', $trimmed, $directiveStackMatch)) {
+                $directiveForStack = '@'.$directiveStackMatch[1];
+                if (in_array($directiveForStack, self::OPENING_DIRECTIVES)) {
+                    $isInlinePhp = $directiveStackMatch[1] === 'php' && preg_match('/^@php\s*\(/', $trimmed);
+                    $closing = $this->directivePairs[$directiveForStack] ?? null;
+                    $isSingleLine = $closing !== null && str_contains($trimmed, $closing);
+
+                    if (! $isInlinePhp && ! $isSingleLine) {
+                        $directiveStack[] = $preOpeningLevel;
+                    }
+                }
+            }
         }
 
         return implode("\n", $result);
     }
 
-    private function countOpeningAdjustments(string $line): int
+    private function countOpeningAdjustments(string $line, bool $countHtmlTags = true): int
     {
         $count = 0;
 
@@ -389,13 +436,21 @@ class IndentationFormatter
             }
         }
 
+        // Skip HTML tag counting for text-content lines (tags mid-text are inline)
+        if (! $countHtmlTags) {
+            return $count;
+        }
+
         // HTML/component opening tags (not self-closing, not void)
         preg_match_all('/<([\w:.-]+)(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $line, $openTagMatches, PREG_SET_ORDER);
         foreach ($openTagMatches as $match) {
             $tagName = strtolower($match[1]);
             $baseTag = explode(':', $tagName)[0] ?: $tagName;
 
-            if (in_array($tagName, self::VOID_ELEMENTS) || in_array($baseTag, self::VOID_ELEMENTS)) {
+            if (
+                in_array($tagName, self::VOID_ELEMENTS) || in_array($baseTag, self::VOID_ELEMENTS)
+                || in_array($tagName, self::NO_INDENT_ELEMENTS)
+            ) {
                 continue;
             }
 
@@ -404,8 +459,16 @@ class IndentationFormatter
             }
         }
 
+        // Dynamic opening tags like <{{ $var }}>
+        preg_match_all('/<\{\{.*?\}\}(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $line, $dynamicOpenMatches, PREG_SET_ORDER);
+        foreach ($dynamicOpenMatches as $match) {
+            if (! str_ends_with($match[0], '/>')) {
+                $count++;
+            }
+        }
+
         // Cancel out closing tags on the same line
-        preg_match_all('/<\/([\w:.-]+)\s*>/', $line, $closeTagMatches);
+        preg_match_all('/<\/(?:[\w:.-]+|\{\{.*?\}\})\s*>/', $line, $closeTagMatches);
         $count -= count($closeTagMatches[0]);
 
         return max(0, $count);
@@ -423,9 +486,12 @@ class IndentationFormatter
             }
         }
 
-        // HTML/component closing tags at the start
-        if (preg_match('/^<\/[\w:.-]+\s*>/', $line)) {
-            $count--;
+        // HTML/component closing tags at the start (static or dynamic)
+        if (preg_match('/^<\/([\w:.-]+|\{\{.*?\}\})\s*>/', $line, $closeMatch)) {
+            $closingTagName = strtolower($closeMatch[1]);
+            if (! in_array($closingTagName, self::NO_INDENT_ELEMENTS)) {
+                $count--;
+            }
         }
 
         return $count;
