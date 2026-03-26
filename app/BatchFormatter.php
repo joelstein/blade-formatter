@@ -531,10 +531,12 @@ class BatchFormatter
      */
     private function replaceFqcnWithShortName(string $code, string $fqcn, string $shortName): string
     {
+        $escaped = preg_quote($fqcn, '/');
+
         return (string) preg_replace(
-            '/(?<=instanceof\s)\b'.preg_quote($fqcn, '/').'\b'
-            .'|\b'.preg_quote($fqcn, '/').'(?=\s*::|\s*\$)'
-            .'|(?<=new\s)\b'.preg_quote($fqcn, '/').'\b/',
+            '/(?<=instanceof\s)\\\\?'.$escaped.'\b'
+            .'|\\\\?'.$escaped.'(?=\s*::|\s*\$)'
+            .'|(?<=new\s)\\\\?'.$escaped.'\b/',
             $shortName,
             $code,
         );

@@ -364,4 +364,39 @@ BLADE;
         $this->assertStringNotContainsString('blade-refs', $result);
         $this->assertStringNotContainsString('::class', $result);
     }
+
+    #[Test]
+    public function it_hoists_backslash_prefixed_fqcns_from_blade(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: true,
+            enableTailwindSort: false,
+        );
+
+        $input = <<<'BLADE'
+<?php
+
+use Livewire\Component;
+
+new class extends Component {};
+?>
+
+<div
+    x-data="{
+        items: @js(\App\ValueObjects\Config::items()),
+        labels: @js(\App\ValueObjects\Config::labels()),
+    }"
+>
+</div>
+BLADE;
+
+        $results = $formatter->formatBatch(['/tmp/test.blade.php' => $input]);
+        $result = $results['/tmp/test.blade.php'];
+
+        $this->assertStringContainsString('use App\ValueObjects\Config;', $result);
+        $this->assertStringContainsString('@js(Config::items())', $result);
+        $this->assertStringContainsString('@js(Config::labels())', $result);
+        // No stray backslash before the short name
+        $this->assertStringNotContainsString('\Config::', $result);
+    }
 }
