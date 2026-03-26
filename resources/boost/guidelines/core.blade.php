@@ -1,3 +1,4 @@
+@verbatim
 ## Blade Formatter
 
 This package formats Blade templates and Livewire Single File Components. It runs three formatters in sequence: PHP formatting via Laravel Pint, Blade indentation, and Tailwind CSS class sorting via Prettier. Each formatter can be enabled or disabled independently.
@@ -6,7 +7,6 @@ This package formats Blade templates and Livewire Single File Components. It run
 
 Format all Blade files with `vendor/bin/blade-format`. Pass paths to format specific files or directories:
 
-@verbatim
 <code-snippet name="Format Blade files" lang="bash">
 # Format all Blade files
 vendor/bin/blade-format
@@ -23,13 +23,11 @@ vendor/bin/blade-format --bail
 # Only format files changed since a branch
 vendor/bin/blade-format --diff=main
 </code-snippet>
-@endverbatim
 
 ### Configuration
 
 Configure via `blade-formatter.json` in the project root. All settings are optional:
 
-@verbatim
 <code-snippet name="blade-formatter.json" lang="json">
 {
     "paths": ["resources/views"],
@@ -42,23 +40,21 @@ Configure via `blade-formatter.json` in the project root. All settings are optio
     "prettier_path": "node_modules/.bin/prettier"
 }
 </code-snippet>
-@endverbatim
 
 ### CI Integration
 
 Run `vendor/bin/blade-format --test` alongside Pint in CI pipelines. It returns a non-zero exit code if any files would change:
 
-@verbatim
 <code-snippet name="CI workflow step" lang="yaml">
 - name: Check formatting
   run: |
     vendor/bin/pint --test
     vendor/bin/blade-format --test
 </code-snippet>
-@endverbatim
 
 ### Key Behaviors
 
 - Markdown mail templates (e.g. `<x-mail::message>`) are automatically skipped to preserve whitespace-sensitive formatting.
 - Tailwind class sorting requires Node.js and the `prettier` and `prettier-plugin-tailwindcss` npm packages.
 - PHP formatting in `@php`/`@endphp` blocks and Livewire SFC sections uses the project's Pint configuration.
+@endverbatim
