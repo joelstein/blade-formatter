@@ -1,6 +1,6 @@
 # Blade Formatter
 
-A tool that formats Blade templates and Livewire Single File Components. Like [Laravel Pint](https://laravel.com/docs/pint) for Blade — run a single command and your files are clean.
+A tool that formats Blade templates and Livewire Single File Components. Like [Laravel Pint](https://laravel.com/docs/pint) for Blade — run a single command and your files are clean. Includes a VS Code extension with format-on-save and automatic PHP/Blade language switching.
 
 ## What It Does
 
@@ -10,7 +10,7 @@ Blade Formatter runs three formatters in sequence:
 2. **Blade indentation** — Auto-indents Blade templates with proper nesting for directives, HTML, components, and Alpine.js attributes
 3. **Tailwind class sorting** — Sorts Tailwind CSS classes using Prettier with [prettier-plugin-tailwindcss](https://github.com/tailwindlabs/prettier-plugin-tailwindcss)
 
-Each formatter can be enabled or disabled independently.
+Each formatter can be enabled or disabled independently. Markdown mail templates (`<x-mail::message>`) are automatically skipped to preserve whitespace-sensitive formatting.
 
 ## Requirements
 

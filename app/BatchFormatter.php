@@ -101,8 +101,8 @@ class BatchFormatter
                 $blade = $this->reinsertPhpBlocks($blade, $phpBlocks[$path], $formattedPhpBlocks[$path]);
             }
 
-            // Apply indentation
-            if ($this->enableIndentation) {
+            // Apply indentation (skip Markdown mail templates where whitespace affects rendering)
+            if ($this->enableIndentation && ! str_contains($blade, '<x-mail::message>')) {
                 $blade = $indentationFormatter->format($blade, $this->indentSize);
             }
 

@@ -70,4 +70,24 @@ class BatchFormatterTest extends TestCase
 
         $this->assertStringContainsString('    <p>Hello</p>', $results['/tmp/test.blade.php']);
     }
+
+    #[Test]
+    public function it_skips_indentation_for_markdown_mail_templates(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: false,
+            enableTailwindSort: false,
+        );
+
+        $content = "<x-mail::message>\n# Hello\n\nContent here.\n\n<x-mail::button :url=\"\$url\">\nView\n</x-mail::button>\n\n</x-mail::message>";
+
+        $files = [
+            '/tmp/mail.blade.php' => $content,
+        ];
+
+        $results = $formatter->formatBatch($files);
+
+        // Content should NOT be indented — Markdown whitespace is significant
+        $this->assertSame($content, $results['/tmp/mail.blade.php']);
+    }
 }
