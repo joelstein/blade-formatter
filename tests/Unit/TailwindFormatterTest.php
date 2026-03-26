@@ -114,6 +114,20 @@ class TailwindFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_sorts_class_strings_inside_bound_class_attributes(): void
+    {
+        $input = "<button :class=\"tab === 'home' ? 'font-bold text-red-500 flex' : 'mt-4 block p-2'\" class=\"font-bold flex\">";
+        $result = $this->formatter->format($input);
+
+        // Quoted class strings inside :class should be sorted
+        $this->assertStringContainsString("'flex font-bold text-red-500'", $result);
+        // Regular class should still be sorted
+        $this->assertStringContainsString('class="flex font-bold"', $result);
+        // :class structure should be preserved
+        $this->assertStringContainsString(":class=\"tab === 'home'", $result);
+    }
+
+    #[Test]
     public function it_leaves_already_sorted_at_class_directives_unchanged(): void
     {
         $input = "<div @class(['flex font-bold text-red-500'])></div>";

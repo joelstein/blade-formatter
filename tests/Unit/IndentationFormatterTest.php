@@ -367,6 +367,15 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_outdents_closing_paren_of_multi_line_directive_condition(): void
+    {
+        $input = "\n@if (\n! app()->isLocal()\n&& ! auth()->check()\n|| \$override\n)\n<p>Content</p>\n@endif";
+        $expected = "\n@if (\n    ! app()->isLocal()\n    && ! auth()->check()\n    || \$override\n)\n    <p>Content</p>\n@endif";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_indents_continuation_lines_inside_braces(): void
     {
         $input = "\n{!! t('test', [\n'key' => 'value'\n. 'more',\n]) !!}";

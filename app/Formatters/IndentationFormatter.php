@@ -82,6 +82,7 @@ class IndentationFormatter
         $braceDepth = 0;
         $directiveDepth = 0;
         $tagBraceOffset = 0;
+        $inMultiLineDirectiveCondition = false;
         $inMultiLineAttrValue = false;
         $inCaseBlock = false;
         /** @var list<int> */
@@ -342,6 +343,13 @@ class IndentationFormatter
             // Continuation lines (starting with . operator) get an extra indent
             $continuation = $braceDepth > 0 && preg_match('/^\.(?:\s|$)/', $trimmed) ? 1 : 0;
 
+            // Closing paren of a multi-line directive condition — align with the directive
+            $directiveConditionClose = false;
+            if ($inMultiLineDirectiveCondition && preg_match('/^\)/', $trimmed)) {
+                $directiveConditionClose = true;
+                $inMultiLineDirectiveCondition = false;
+            }
+
             // For closing/midblock Blade directives, align with their opening directive
             // using min(currentLevel, stackLevel) to handle crossed HTML/Blade nesting
             $writeLevel = $level;
@@ -351,6 +359,8 @@ class IndentationFormatter
             } elseif ($midblockAdjust < 0 && $directiveStack !== []) {
                 $stackLevel = end($directiveStack);
                 $writeLevel = min($level, $stackLevel);
+            } elseif ($directiveConditionClose) {
+                $writeLevel = max(0, $level - 1);
             }
 
             $result[] = str_repeat($indent, $writeLevel + $braceDepth + $continuation).$trimmed;
@@ -418,6 +428,11 @@ class IndentationFormatter
                         $directiveStack[] = $preOpeningLevel;
                     }
                 }
+
+                // Detect multi-line directive condition: @if (, @elseif (, @unless (, etc.
+                if (str_ends_with($trimmed, '(')) {
+                    $inMultiLineDirectiveCondition = true;
+                }
             }
         }
 
@@ -458,12 +473,21 @@ class IndentationFormatter
             if (
                 in_array($tagName, self::VOID_ELEMENTS) || in_array($baseTag, self::VOID_ELEMENTS)
                 || in_array($tagName, self::NO_INDENT_ELEMENTS)
-                || in_array($tagName, self::INLINE_ELEMENTS)
             ) {
                 continue;
             }
 
             if (! str_ends_with($match[0], '/>')) {
+                // Skip inline elements that have text content immediately after them (inline usage)
+                if (in_array($tagName, self::INLINE_ELEMENTS)) {
+                    $posAfterTag = strpos($line, $match[0]) + strlen($match[0]);
+                    $textAfterTag = substr($line, $posAfterTag);
+                    $textBeforeNextTag = preg_match('/^([^<]*)/', $textAfterTag, $m) ? $m[1] : '';
+                    if (trim($textBeforeNextTag) !== '') {
+                        continue;
+                    }
+                }
+
                 $count++;
             }
         }

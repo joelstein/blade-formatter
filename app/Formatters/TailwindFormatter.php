@@ -18,6 +18,9 @@ class TailwindFormatter
         // Step 2: Sort classes inside @class([...]) directives
         $result = $this->sortAtClassDirectives($prettierPath, $result);
 
+        // Step 3: Sort classes inside :class="..." and x-bind:class="..." bindings
+        $result = $this->sortBoundClassAttributes($prettierPath, $result);
+
         return $result;
     }
 
@@ -31,7 +34,7 @@ class TailwindFormatter
         $classStrings = [];
 
         // From class="..." attributes
-        preg_match_all('/\bclass="([^"]*)"/', $content, $matches, PREG_SET_ORDER);
+        preg_match_all('/(?<!:)\bclass="([^"]*)"/', $content, $matches, PREG_SET_ORDER);
         foreach ($matches as $match) {
             if (preg_match(self::BLADE_IN_CLASS_PATTERN, $match[1])) {
                 $parts = preg_split(self::BLADE_IN_CLASS_PATTERN, $match[1], -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$match[1]];
@@ -50,6 +53,16 @@ class TailwindFormatter
         $classStringPattern = '/([\'"])((?:(?!\1).)*)\1(?:\s*=>)?/';
         foreach ($directiveMatches as $match) {
             preg_match_all($classStringPattern, $match[0], $stringMatches, PREG_SET_ORDER);
+            foreach ($stringMatches as $stringMatch) {
+                $classStrings[] = $stringMatch[2];
+            }
+        }
+
+        // From :class="..." and x-bind:class="..." bindings (only class values, not JS comparison values)
+        preg_match_all('/(?::class|x-bind:class)="([^"]*)"/', $content, $boundMatches, PREG_SET_ORDER);
+        $boundClassStringPattern = '/[?:{,]\s*([\'"])((?:(?!\1).)*)\1/';
+        foreach ($boundMatches as $match) {
+            preg_match_all($boundClassStringPattern, $match[1], $stringMatches, PREG_SET_ORDER);
             foreach ($stringMatches as $stringMatch) {
                 $classStrings[] = $stringMatch[2];
             }
@@ -77,7 +90,7 @@ class TailwindFormatter
     public function applySortedClasses(string $content, array $sortMap): string
     {
         // Replace in class="..." attributes
-        $content = preg_replace_callback('/\bclass="([^"]*)"/', function (array $match) use ($sortMap): string {
+        $content = preg_replace_callback('/(?<!:)\bclass="([^"]*)"/', function (array $match) use ($sortMap): string {
             if (preg_match(self::BLADE_IN_CLASS_PATTERN, $match[1])) {
                 return $this->rebuildBladeClassAttribute($match[1], $sortMap);
             }
@@ -103,6 +116,23 @@ class TailwindFormatter
             }, $block[0]);
         }, $content);
 
+        // Replace in :class="..." and x-bind:class="..." bindings
+        $boundClassStringPattern = '/([?:{,]\s*)([\'"])((?:(?!\2).)*)\2/';
+        $content = (string) preg_replace_callback('/(?::class|x-bind:class)="([^"]*)"/', function (array $block) use ($boundClassStringPattern, $sortMap): string {
+            return (string) preg_replace_callback($boundClassStringPattern, function (array $match) use ($sortMap): string {
+                $prefix = $match[1];
+                $quote = $match[2];
+                $classValue = $match[3];
+                $sorted = $sortMap[$classValue] ?? null;
+
+                if ($sorted === null || $sorted === $classValue) {
+                    return $match[0];
+                }
+
+                return $prefix.$quote.$sorted.$quote;
+            }, $block[0]);
+        }, $content);
+
         return $content;
     }
 
@@ -111,7 +141,7 @@ class TailwindFormatter
      */
     private function sortClassAttributes(string $prettierPath, string $content): string
     {
-        preg_match_all('/\bclass="([^"]*)"/', $content, $matches, PREG_SET_ORDER);
+        preg_match_all('/(?<!:)\bclass="([^"]*)"/', $content, $matches, PREG_SET_ORDER);
 
         if (empty($matches)) {
             return $content;
@@ -187,7 +217,7 @@ class TailwindFormatter
             return $content;
         }
 
-        return preg_replace_callback('/\bclass="([^"]*)"/', function (array $match) use ($replacements): string {
+        return preg_replace_callback('/(?<!:)\bclass="([^"]*)"/', function (array $match) use ($replacements): string {
             $sorted = $replacements[$match[1]] ?? null;
 
             return $sorted !== null ? 'class="'.$sorted.'"' : $match[0];
@@ -242,6 +272,61 @@ class TailwindFormatter
                 }
 
                 return str_replace($quote.$classValue.$quote, $quote.$sorted.$quote, $match[0]);
+            }, $block[0]);
+        }, $content);
+    }
+
+    /**
+     * Sort classes within :class="..." and x-bind:class="..." bindings.
+     */
+    private function sortBoundClassAttributes(string $prettierPath, string $content): string
+    {
+        preg_match_all('/(?::class|x-bind:class)="([^"]*)"/', $content, $matches, PREG_SET_ORDER);
+
+        if (empty($matches)) {
+            return $content;
+        }
+
+        $classStrings = [];
+        $boundClassStringPattern = '/[?:{,]\s*([\'"])((?:(?!\1).)*)\1/';
+
+        foreach ($matches as $match) {
+            preg_match_all($boundClassStringPattern, $match[1], $stringMatches, PREG_SET_ORDER);
+
+            foreach ($stringMatches as $stringMatch) {
+                $classStrings[] = $stringMatch[2];
+            }
+        }
+
+        if (empty($classStrings)) {
+            return $content;
+        }
+
+        $sortedClasses = $this->sortClassStrings($prettierPath, $classStrings);
+
+        if ($sortedClasses === null) {
+            return $content;
+        }
+
+        $sortMap = [];
+        for ($i = 0; $i < count($classStrings); $i++) {
+            $sortMap[$classStrings[$i]] = $sortedClasses[$i];
+        }
+
+        $boundReplacePattern = '/([?:{,]\s*)([\'"])((?:(?!\2).)*)\2/';
+
+        return (string) preg_replace_callback('/(?::class|x-bind:class)="([^"]*)"/', function (array $block) use ($boundReplacePattern, $sortMap): string {
+            return (string) preg_replace_callback($boundReplacePattern, function (array $match) use ($sortMap): string {
+                $prefix = $match[1];
+                $quote = $match[2];
+                $classValue = $match[3];
+                $sorted = $sortMap[$classValue] ?? null;
+
+                if ($sorted === null || $sorted === $classValue) {
+                    return $match[0];
+                }
+
+                return $prefix.$quote.$sorted.$quote;
             }, $block[0]);
         }, $content);
     }
