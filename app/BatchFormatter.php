@@ -367,6 +367,7 @@ class BatchFormatter
             $info = $keyMap[$key];
             // Strip the <?php prefix we added
             $code = (string) preg_replace('/^<\?php\s*\n?/', '', $formattedCode);
+            $code = $this->expandUseStatements($code);
             $code = rtrim($code)."\n";
             $results[$info['path']][$info['index']] = $code;
         }
@@ -399,8 +400,47 @@ class BatchFormatter
     }
 
     /**
-     * Build a temporary Pint config for @php blocks that enforces FQCNs
-     * instead of use imports (which make no sense in isolated Blade PHP blocks).
+     * Expand use statements in @php block code back to FQCNs.
+     *
+     * Use statements don't make sense in @php blocks since there's no persistent
+     * namespace context. This replaces short class names with their fully qualified
+     * equivalents and removes the use statements.
+     */
+    private function expandUseStatements(string $code): string
+    {
+        // Parse use statements: use Foo\Bar; or use Foo\Bar as Baz;
+        if (! preg_match_all('/^use\s+([\w\\\\]+)(?:\s+as\s+(\w+))?\s*;$/m', $code, $matches, PREG_SET_ORDER)) {
+            return $code;
+        }
+
+        $replacements = [];
+        foreach ($matches as $match) {
+            $fqcn = $match[1];
+            $alias = $match[2] ?? null;
+            $shortName = $alias ?? substr($fqcn, strrpos($fqcn, '\\') + 1);
+            $replacements[$shortName] = '\\'.$fqcn;
+
+            // Remove the use statement and any trailing blank line
+            $code = str_replace($match[0]."\n\n", '', $code);
+            $code = str_replace($match[0]."\n", '', $code);
+            $code = str_replace($match[0], '', $code);
+        }
+
+        // Replace short names with FQCNs (only when used as class references)
+        foreach ($replacements as $shortName => $fqcn) {
+            $code = (string) preg_replace(
+                '/\b'.preg_quote($shortName, '/').'(?=\s*::|\s*\$)/',
+                $fqcn,
+                $code,
+            );
+        }
+
+        return $code;
+    }
+
+    /**
+     * Build a temporary Pint config for @php blocks that disables FQCN import
+     * rules (which make no sense in isolated Blade PHP blocks).
      */
     private function buildPhpBlockPintConfig(): string
     {

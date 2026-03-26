@@ -114,4 +114,53 @@ BLADE;
         $this->assertStringContainsString('\App\Enums\Status::Pending', $result);
         $this->assertStringContainsString('\App\Enums\Status::Complete', $result);
     }
+
+    #[Test]
+    public function it_expands_use_statements_in_php_blocks_to_fqcns(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: true,
+            enableTailwindSort: false,
+        );
+
+        $input = <<<'BLADE'
+@php
+    use App\Enums\Status;
+
+    $isPending = $status === Status::Pending;
+    $isComplete = $status === Status::Complete;
+@endphp
+BLADE;
+
+        $results = $formatter->formatBatch(['/tmp/test.blade.php' => $input]);
+        $result = $results['/tmp/test.blade.php'];
+
+        $this->assertStringNotContainsString('use App\\', $result);
+        $this->assertStringContainsString('\App\Enums\Status::Pending', $result);
+        $this->assertStringContainsString('\App\Enums\Status::Complete', $result);
+    }
+
+    #[Test]
+    public function it_expands_aliased_use_statements_in_php_blocks(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: true,
+            enableTailwindSort: false,
+        );
+
+        $input = <<<'BLADE'
+@php
+    use App\Enums\Status as S;
+
+    $isPending = $status === S::Pending;
+@endphp
+BLADE;
+
+        $results = $formatter->formatBatch(['/tmp/test.blade.php' => $input]);
+        $result = $results['/tmp/test.blade.php'];
+
+        $this->assertStringNotContainsString('use App\\', $result);
+        $this->assertStringNotContainsString('S::', $result);
+        $this->assertStringContainsString('\App\Enums\Status::Pending', $result);
+    }
 }
