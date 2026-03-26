@@ -84,8 +84,9 @@ class BatchFormatter
         // Phase 3: Run Pint and Prettier concurrently
         [$formattedPhp, $sortMap] = $this->runFormatters($phpChunks, $tailwindFormatter, $allClassStrings, $fileClassStrings);
 
-        // Phase 3b: Run Pint on @php blocks
-        $formattedPhpBlocks = $this->formatPhpBlocks($phpBlocks);
+        // Phase 3b: Run Pint on @php blocks (SFC blocks expand imports for hoisting)
+        $sfcPaths = array_keys(array_filter($parsed, fn (array $p): bool => $p['isSfc']));
+        $formattedPhpBlocks = $this->formatPhpBlocks($phpBlocks, $sfcPaths);
 
         // Phase 4: Reassemble each file
         $indentationFormatter = new IndentationFormatter;
@@ -99,6 +100,11 @@ class BatchFormatter
             // Reinsert Pint-formatted @php block contents before indentation
             if (isset($formattedPhpBlocks[$path])) {
                 $blade = $this->reinsertPhpBlocks($blade, $phpBlocks[$path], $formattedPhpBlocks[$path]);
+            }
+
+            // Hoist FQCNs from Blade to the SFC PHP section as use statements
+            if ($parts['isSfc']) {
+                [$php, $blade] = $this->hoistFqcnsToPhpSection($php, $blade);
             }
 
             // Apply indentation (skip Markdown mail templates where whitespace affects rendering)
@@ -324,28 +330,37 @@ class BatchFormatter
      * Format @php block contents with Pint.
      *
      * @param  array<string, list<array{start: int, end: int, code: string}>>  $phpBlocks
+     * @param  list<string>  $sfcPaths  Paths of files that are SFCs
      * @return array<string, array<int, string>>  Formatted code per file, indexed same as blocks
      */
-    private function formatPhpBlocks(array $phpBlocks): array
+    private function formatPhpBlocks(array $phpBlocks, array $sfcPaths): array
     {
         if ($phpBlocks === []) {
             return [];
         }
 
-        // Collect all blocks into a single batch
-        $chunks = [];
+        // Split blocks into SFC and non-SFC batches
+        $sfcChunks = [];
+        $regularChunks = [];
         $keyMap = [];
         foreach ($phpBlocks as $path => $blocks) {
+            $isSfc = in_array($path, $sfcPaths);
             foreach ($blocks as $index => $block) {
                 $key = $path.':'.$index;
-                $chunks[$key] = $this->dedent($block['code']);
                 $keyMap[$key] = ['path' => $path, 'index' => $index];
+                if ($isSfc) {
+                    $sfcChunks[$key] = $this->dedent($block['code']);
+                } else {
+                    $regularChunks[$key] = $this->dedent($block['code']);
+                }
             }
         }
 
         try {
             $pintFormatter = new PintFormatter;
-            $formatted = $pintFormatter->formatPhpBlockBatch($chunks, $this->pintConfigPath);
+            // SFC blocks: expand imports so FQCNs can be hoisted to PHP section
+            $formatted = $pintFormatter->formatPhpBlockBatch($sfcChunks, $this->pintConfigPath, expandImports: true)
+                + $pintFormatter->formatPhpBlockBatch($regularChunks, $this->pintConfigPath, expandImports: false);
         } catch (\Throwable $e) {
             foreach (array_keys($phpBlocks) as $path) {
                 $this->warnings[$path][] = 'Pint skipped for @php blocks: '.$e->getMessage();
@@ -386,6 +401,128 @@ class BatchFormatter
         }
 
         return $blade;
+    }
+
+    /**
+     * Extract FQCNs from Blade content, replace them with short names,
+     * and add use statements to the SFC PHP section.
+     *
+     * This runs after Pint has already formatted the PHP section, so the
+     * use statements won't be stripped as "unused".
+     *
+     * @return array{string, string} [php, blade]
+     */
+    private function hoistFqcnsToPhpSection(string $php, string $blade): array
+    {
+        // Match FQCNs: at least one backslash, starting with uppercase segment
+        // e.g. App\Models\Post, App\Enums\Status
+        if (! preg_match_all('/\b((?:[A-Z][a-zA-Z0-9]*\\\\)+[A-Z][a-zA-Z0-9]*)\b/', $blade, $matches)) {
+            return [$php, $blade];
+        }
+
+        $fqcns = array_unique($matches[1]);
+
+        // Collect existing use statements from the PHP section to avoid duplicates
+        preg_match_all('/^use\s+([\w\\\\]+)\s*;$/m', $php, $existingUses);
+        $existingFqcns = $existingUses[1];
+
+        $newUses = [];
+        foreach ($fqcns as $fqcn) {
+            $shortName = substr($fqcn, strrpos($fqcn, '\\') + 1);
+
+            // Skip if already imported
+            if (in_array($fqcn, $existingFqcns)) {
+                // Still replace FQCN with short name in Blade
+                $blade = $this->replaceFqcnWithShortName($blade, $fqcn, $shortName);
+
+                continue;
+            }
+
+            // Check for short name conflicts (different FQCN, same class name)
+            $conflictsWithExisting = false;
+            foreach ($existingFqcns as $existing) {
+                if (substr($existing, strrpos($existing, '\\') + 1) === $shortName && $existing !== $fqcn) {
+                    $conflictsWithExisting = true;
+                    break;
+                }
+            }
+
+            if ($conflictsWithExisting) {
+                continue; // Leave as FQCN in Blade to avoid ambiguity
+            }
+
+            $newUses[] = 'use '.$fqcn.';';
+            $blade = $this->replaceFqcnWithShortName($blade, $fqcn, $shortName);
+        }
+
+        if ($newUses === []) {
+            return [$php, $blade];
+        }
+
+        // Insert new use statements into the PHP section after existing ones
+        sort($newUses);
+
+        if (preg_match_all('/^use\s+[\w\\\\]+\s*;$/m', $php, $allUseMatches, PREG_OFFSET_CAPTURE)) {
+            // Insert after the last existing use statement
+            $lastUse = end($allUseMatches[0]);
+            /** @var array{string, int} $lastUse */
+            $insertPos = $lastUse[1] + strlen($lastUse[0]);
+            $php = substr($php, 0, $insertPos)."\n".implode("\n", $newUses).substr($php, $insertPos);
+        } else {
+            // No existing use statements — insert after <?php line
+            $phpTagEnd = strpos($php, "\n");
+            if ($phpTagEnd !== false) {
+                $php = substr($php, 0, $phpTagEnd)."\n\n".implode("\n", $newUses).substr($php, $phpTagEnd);
+            }
+        }
+
+        // Re-sort all use statements in the PHP section
+        $php = $this->sortUseStatements($php);
+
+        return [$php, $blade];
+    }
+
+    /**
+     * Replace a FQCN with its short name in all class reference contexts.
+     */
+    private function replaceFqcnWithShortName(string $code, string $fqcn, string $shortName): string
+    {
+        return (string) preg_replace(
+            '/(?<=instanceof\s)\b'.preg_quote($fqcn, '/').'\b'
+            .'|\b'.preg_quote($fqcn, '/').'(?=\s*::|\s*\$)'
+            .'|(?<=new\s)\b'.preg_quote($fqcn, '/').'\b/',
+            $shortName,
+            $code,
+        );
+    }
+
+    /**
+     * Sort use statements alphabetically within the PHP section.
+     */
+    private function sortUseStatements(string $php): string
+    {
+        if (! preg_match_all('/^use\s+[\w\\\\]+\s*;$/m', $php, $matches, PREG_OFFSET_CAPTURE)) {
+            return $php;
+        }
+
+        $uses = $matches[0];
+        if (count($uses) < 2) {
+            return $php;
+        }
+
+        $sorted = array_column($uses, 0);
+        sort($sorted);
+
+        // Replace each use statement in order
+        // Process in reverse to preserve offsets
+        $result = $php;
+        for ($i = count($uses) - 1; $i >= 0; $i--) {
+            $result = substr($result, 0, $uses[$i][1])
+                .$sorted[$i]
+                .substr($result, $uses[$i][1] + strlen($uses[$i][0]));
+        }
+
+        return $result;
     }
 
     /**

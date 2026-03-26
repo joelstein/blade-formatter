@@ -81,13 +81,16 @@ class PintFormatter
     }
 
     /**
-     * Format @php block code: run Pint with FQCN import rules disabled,
-     * then expand any use statements back to fully qualified class names.
+     * Format @php block code with Pint.
+     *
+     * When expandImports is true (for SFCs), use statements are expanded back
+     * to FQCNs so they can be hoisted to the PHP section. When false (for
+     * regular Blade files), use statements are left as-is.
      *
      * @param  array<string, string>  $phpChunks  Keyed by identifier, raw PHP without <?php prefix
      * @return array<string, string>  Formatted chunks, same keys
      */
-    public function formatPhpBlockBatch(array $phpChunks, ?string $configPath = null): array
+    public function formatPhpBlockBatch(array $phpChunks, ?string $configPath = null, bool $expandImports = false): array
     {
         if ($phpChunks === []) {
             return [];
@@ -107,12 +110,14 @@ class PintFormatter
             @unlink($blockConfig);
         }
 
-        // Strip <?php prefix, expand use statements, and normalize FQCNs
+        // Strip <?php prefix and optionally expand use statements to FQCNs
         $results = [];
         foreach ($formatted as $key => $code) {
             $code = (string) preg_replace('/^<\?php\s*\n?/', '', $code);
-            $code = $this->expandUseStatements($code);
-            $code = $this->stripLeadingBackslashes($code);
+            if ($expandImports) {
+                $code = $this->expandUseStatements($code);
+                $code = $this->stripLeadingBackslashes($code);
+            }
             $results[$key] = $code;
         }
 
