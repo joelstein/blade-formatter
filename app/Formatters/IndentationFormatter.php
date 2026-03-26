@@ -482,8 +482,10 @@ class IndentationFormatter
             }
 
             if (! str_ends_with($match[0], '/>')) {
-                // Skip inline elements that have text content immediately after them (inline usage)
-                if (in_array($tagName, self::INLINE_ELEMENTS)) {
+                // Skip inline elements and components that have text content immediately after them
+                $isInlineOrComponent = in_array($tagName, self::INLINE_ELEMENTS)
+                    || str_contains($tagName, '-') || str_contains($tagName, ':');
+                if ($isInlineOrComponent) {
                     $posAfterTag = strpos($line, $match[0]) + strlen($match[0]);
                     $textAfterTag = substr($line, $posAfterTag);
                     $textBeforeNextTag = preg_match('/^([^<]*)/', $textAfterTag, $m) ? $m[1] : '';
