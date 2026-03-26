@@ -102,7 +102,7 @@ class BatchFormatter
             }
 
             // Apply indentation (skip Markdown mail templates where whitespace affects rendering)
-            if ($this->enableIndentation && ! str_contains($blade, '<x-mail::message>')) {
+            if ($this->enableIndentation && ! preg_match('/<x-mail::message[\s>]/', $blade)) {
                 $blade = $indentationFormatter->format($blade, $this->indentSize);
             }
 

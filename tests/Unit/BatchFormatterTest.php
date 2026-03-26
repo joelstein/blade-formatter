@@ -79,7 +79,7 @@ class BatchFormatterTest extends TestCase
             enableTailwindSort: false,
         );
 
-        $content = "<x-mail::message>\n# Hello\n\nContent here.\n\n<x-mail::button :url=\"\$url\">\nView\n</x-mail::button>\n\n</x-mail::message>";
+        $content = "<x-mail::message :unsubscribeUrl=\"\$url\">\n# Hello\n\nContent here.\n\n<x-mail::button :url=\"\$url\">\nView\n</x-mail::button>\n\n</x-mail::message>";
 
         $files = [
             '/tmp/mail.blade.php' => $content,
