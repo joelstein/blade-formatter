@@ -19,7 +19,7 @@ class IndentationFormatter
         '@env', '@production',
         '@unless', '@isset', '@empty', '@forelse',
         '@verbatim', '@php',
-        '@once', '@persist',
+        '@once', '@persist', '@placeholder',
         '@fragment', '@teleport',
         '@assets', '@script', '@style',
     ];
@@ -66,6 +66,7 @@ class IndentationFormatter
         $multiLineTagIsSelfClosing = false;
         $braceDepth = 0;
         $directiveDepth = 0;
+        $tagBraceOffset = 0;
         $inCaseBlock = false;
         $preserveBlock = null;
 
@@ -126,8 +127,12 @@ class IndentationFormatter
                 $openBraces = $this->countChar($trimmed, '{') + $this->countChar($trimmed, '[');
                 $closeBraces = $this->countChar($trimmed, '}') + $this->countChar($trimmed, ']');
 
+                $priorTagBraceOffset = $tagBraceOffset;
                 if ($closeBraces > $openBraces) {
                     $braceDepth = max(0, $braceDepth - ($closeBraces - $openBraces));
+                    if ($braceDepth === 0) {
+                        $tagBraceOffset = 0;
+                    }
                 }
 
                 // Detect Blade directives inside multi-line tags (e.g. @if/@endif for conditional attributes)
@@ -142,11 +147,14 @@ class IndentationFormatter
                 } else {
                     $closesTag = ! $braceDepth && (str_ends_with($trimmed, '>') || str_ends_with($trimmed, '/>'));
                     $startsWithClosingBracket = (bool) preg_match('/^\/?>/', $trimmed);
+                    $closesTagWithBraces = $closesTag && ! $startsWithClosingBracket && (str_contains($trimmed, ']') || str_contains($trimmed, '}'));
 
                     if ($closesTag && $startsWithClosingBracket) {
                         $result[] = str_repeat($indent, $level).$trimmed;
+                    } elseif ($closesTagWithBraces) {
+                        $result[] = str_repeat($indent, $level + 1 + $priorTagBraceOffset).$trimmed;
                     } else {
-                        $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth).$trimmed;
+                        $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth + $tagBraceOffset).$trimmed;
                     }
                 }
 
@@ -164,6 +172,7 @@ class IndentationFormatter
                     $inMultiLineTag = false;
                     $braceDepth = 0;
                     $directiveDepth = 0;
+                    $tagBraceOffset = 0;
 
                     if (! $multiLineTagIsSelfClosing && ! $multiLineTagIsVoid) {
                         $level++;
@@ -241,7 +250,10 @@ class IndentationFormatter
 
             $level = max(0, $level + $closingAdjust + $midblockAdjust);
 
-            $result[] = str_repeat($indent, $level + $braceDepth).$trimmed;
+            // Continuation lines (starting with . operator) get an extra indent
+            $continuation = $braceDepth > 0 && preg_match('/^\.(?:\s|$)/', $trimmed) ? 1 : 0;
+
+            $result[] = str_repeat($indent, $level + $braceDepth + $continuation).$trimmed;
 
             // Undo midblock adjustment
             if ($midblockAdjust < 0) {
@@ -264,6 +276,12 @@ class IndentationFormatter
                     $baseTag = explode(':', $tagName)[0] ?: $tagName;
                     $multiLineTagIsVoid = in_array($tagName, self::VOID_ELEMENTS) || in_array($baseTag, self::VOID_ELEMENTS);
                     $multiLineTagIsSelfClosing = false;
+
+                    // When the tag-opening line itself opens braces (e.g. <div x-data="{
+                    // or <div @class([), offset so content aligns at the tag level
+                    if ($braceDepth > 0) {
+                        $tagBraceOffset = -1;
+                    }
 
                     continue;
                 }

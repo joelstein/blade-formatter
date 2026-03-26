@@ -283,6 +283,15 @@ class IndentationFormatterTest extends TestCase
         $this->assertSame($expected, $this->indent($input));
     }
 
+    #[Test]
+    public function it_indents_continuation_lines_inside_braces(): void
+    {
+        $input = "\n{!! t('test', [\n'key' => 'value'\n. 'more',\n]) !!}";
+        $expected = "\n{!! t('test', [\n    'key' => 'value'\n        . 'more',\n]) !!}";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
     // ── Brace nesting outside tags ───────────────────────────────────
 
     #[Test]
