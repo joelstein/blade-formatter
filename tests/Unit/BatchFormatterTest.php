@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\BatchFormatter;
+use BladeFormatter\BatchFormatter;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 

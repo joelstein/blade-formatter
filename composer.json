@@ -19,7 +19,7 @@
     "bin": ["builds/blade-format"],
     "autoload": {
         "psr-4": {
-            "App\\": "app/"
+            "BladeFormatter\\": "app/"
         }
     },
     "autoload-dev": {

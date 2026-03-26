@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Formatters\IndentationFormatter;
+use BladeFormatter\Formatters\IndentationFormatter;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 

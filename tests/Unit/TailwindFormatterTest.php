@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Formatters\TailwindFormatter;
+use BladeFormatter\Formatters\TailwindFormatter;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 

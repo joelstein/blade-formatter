@@ -1,7 +1,7 @@
 <?php
 
 return [
-    'default' => App\Commands\DefaultCommand::class,
+    'default' => BladeFormatter\Commands\DefaultCommand::class,
     'paths' => [app_path('Commands')],
     'add' => [],
     'hidden' => [

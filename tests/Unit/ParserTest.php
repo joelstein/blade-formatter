@@ -2,7 +2,7 @@
 
 namespace Tests\Unit;
 
-use App\Parser;
+use BladeFormatter\Parser;
 use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 

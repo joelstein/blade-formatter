@@ -1,10 +1,10 @@
 <?php
 
-namespace App;
+namespace BladeFormatter;
 
-use App\Formatters\IndentationFormatter;
-use App\Formatters\PintFormatter;
-use App\Formatters\TailwindFormatter;
+use BladeFormatter\Formatters\IndentationFormatter;
+use BladeFormatter\Formatters\PintFormatter;
+use BladeFormatter\Formatters\TailwindFormatter;
 use Symfony\Component\Process\Process;
 
 class BatchFormatter

@@ -1,8 +1,8 @@
 <?php
 
-namespace App\Commands;
+namespace BladeFormatter\Commands;
 
-use App\BatchFormatter;
+use BladeFormatter\BatchFormatter;
 use LaravelZero\Framework\Commands\Command;
 use Symfony\Component\Console\Terminal;
 use Symfony\Component\Finder\Finder;
