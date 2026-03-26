@@ -91,6 +91,29 @@ class TailwindFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_preserves_blade_directives_inside_class_attributes(): void
+    {
+        $input = '<body class="font-bold text-red-500 flex @if(request()->is(\'admin/*\')) bg-gray-100 lg:bg-gray-200 dark:bg-gray-900 dark:lg:bg-gray-950 @endif">';
+        $result = $this->formatter->format($input);
+
+        // Blade directives are preserved
+        $this->assertStringContainsString("@if(request()->is('admin/*'))", $result);
+        $this->assertStringContainsString('@endif', $result);
+        // Base classes are sorted
+        $this->assertStringContainsString('flex font-bold text-red-500', $result);
+    }
+
+    #[Test]
+    public function it_sorts_class_segments_around_blade_expressions(): void
+    {
+        $input = '<div class="font-bold flex {{ $extra }} text-red-500 mt-4">';
+        $result = $this->formatter->format($input);
+
+        $this->assertStringContainsString('{{ $extra }}', $result);
+        $this->assertStringContainsString('flex font-bold', $result);
+    }
+
+    #[Test]
     public function it_leaves_already_sorted_at_class_directives_unchanged(): void
     {
         $input = "<div @class(['flex font-bold text-red-500'])></div>";

@@ -349,6 +349,24 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_indents_dot_chained_methods_in_multiline_attribute_values(): void
+    {
+        $input = "\n<flux:input\nx-on:input=\"\nvalue\n.toLowerCase()\n.trim()\n\"\n/>";
+        $expected = "\n<flux:input\n    x-on:input=\"\n        value\n            .toLowerCase()\n            .trim()\n    \"\n/>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_ternary_operators_in_multi_line_tag_attributes(): void
+    {
+        $input = "\n<button\n:class=\"condition\n? 'active'\n: 'inactive'\"\nclass=\"btn\"\n>";
+        $expected = "\n<button\n    :class=\"condition\n        ? 'active'\n        : 'inactive'\"\n    class=\"btn\"\n>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_indents_continuation_lines_inside_braces(): void
     {
         $input = "\n{!! t('test', [\n'key' => 'value'\n. 'more',\n]) !!}";
@@ -510,6 +528,15 @@ class IndentationFormatterTest extends TestCase
     {
         $input = "\n<li>\nClick <x-ui>Edit Schedule</x-ui>, select the range of hours\nyou want to close, and click <x-ui>Edit Selected\nHours</x-ui>.\n</li>";
         $expected = "\n<li>\n    Click <x-ui>Edit Schedule</x-ui>, select the range of hours\n    you want to close, and click <x-ui>Edit Selected\n    Hours</x-ui>.\n</li>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_does_not_indent_for_inline_elements_that_wrap(): void
+    {
+        $input = "\n<p>\nHowever,\n<strong>administrators and captains can create commitments on\nclosed hours</strong>. This provides a creative workaround.\n</p>";
+        $expected = "\n<p>\n    However,\n    <strong>administrators and captains can create commitments on\n    closed hours</strong>. This provides a creative workaround.\n</p>";
 
         $this->assertSame($expected, $this->indent($input));
     }

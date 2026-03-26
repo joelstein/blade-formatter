@@ -7,6 +7,9 @@ use Symfony\Component\Process\Process;
 
 class TailwindFormatter
 {
+    /** Pattern to match Blade directives and expressions inside class attribute values */
+    private const BLADE_IN_CLASS_PATTERN = '/(@\w+(?:\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\))?|\{\{.*?\}\}|\{!!.*?!!\})/';
+
     public function format(string $content, string $prettierPath = 'node_modules/.bin/prettier'): string
     {
         // Step 1: Sort standard class="..." attributes
@@ -30,7 +33,16 @@ class TailwindFormatter
         // From class="..." attributes
         preg_match_all('/\bclass="([^"]*)"/', $content, $matches, PREG_SET_ORDER);
         foreach ($matches as $match) {
-            $classStrings[] = $match[1];
+            if (preg_match(self::BLADE_IN_CLASS_PATTERN, $match[1])) {
+                $parts = preg_split(self::BLADE_IN_CLASS_PATTERN, $match[1], -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$match[1]];
+                foreach ($parts as $i => $part) {
+                    if ($i % 2 === 0 && trim($part) !== '') {
+                        $classStrings[] = trim($part);
+                    }
+                }
+            } else {
+                $classStrings[] = $match[1];
+            }
         }
 
         // From @class([...]) directives
@@ -66,6 +78,10 @@ class TailwindFormatter
     {
         // Replace in class="..." attributes
         $content = preg_replace_callback('/\bclass="([^"]*)"/', function (array $match) use ($sortMap): string {
+            if (preg_match(self::BLADE_IN_CLASS_PATTERN, $match[1])) {
+                return $this->rebuildBladeClassAttribute($match[1], $sortMap);
+            }
+
             $sorted = $sortMap[$match[1]] ?? null;
 
             return $sorted !== null ? 'class="'.$sorted.'"' : $match[0];
@@ -101,17 +117,69 @@ class TailwindFormatter
             return $content;
         }
 
-        $classValues = array_map(fn (array $m): string => $m[1], $matches);
-        $sortedValues = $this->sortClassStrings($prettierPath, $classValues);
+        // Collect all class strings that need sorting, splitting Blade-containing values into segments
+        $allClassStrings = [];
+        /** @var array<int, int> Maps match index → allClassStrings index (plain classes) */
+        $plainIndices = [];
+        /** @var array<int, array{parts: list<string>, segmentIndices: array<int, int>}> Blade-containing classes */
+        $bladeEntries = [];
+
+        foreach ($matches as $j => $match) {
+            $classValue = $match[1];
+
+            if (preg_match(self::BLADE_IN_CLASS_PATTERN, $classValue)) {
+                $parts = preg_split(self::BLADE_IN_CLASS_PATTERN, $classValue, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$classValue];
+                $segmentIndices = [];
+                foreach ($parts as $i => $part) {
+                    if ($i % 2 === 0 && trim($part) !== '') {
+                        $segmentIndices[$i] = count($allClassStrings);
+                        $allClassStrings[] = trim($part);
+                    }
+                }
+                $bladeEntries[$j] = ['parts' => $parts, 'segmentIndices' => $segmentIndices];
+            } else {
+                $plainIndices[$j] = count($allClassStrings);
+                $allClassStrings[] = $classValue;
+            }
+        }
+
+        if ($allClassStrings === []) {
+            return $content;
+        }
+
+        $sortedValues = $this->sortClassStrings($prettierPath, $allClassStrings);
 
         if ($sortedValues === null) {
             return $content;
         }
 
+        // Build replacement map
         $replacements = [];
-        for ($i = 0; $i < count($classValues); $i++) {
-            if ($classValues[$i] !== $sortedValues[$i]) {
-                $replacements[$classValues[$i]] = $sortedValues[$i];
+        foreach ($matches as $j => $match) {
+            $original = $match[1];
+
+            if (isset($bladeEntries[$j])) {
+                $entry = $bladeEntries[$j];
+                $segments = [];
+                foreach ($entry['parts'] as $i => $part) {
+                    if ($i % 2 === 0) {
+                        $trimmed = trim($part);
+                        if ($trimmed !== '') {
+                            $segments[] = $sortedValues[$entry['segmentIndices'][$i]];
+                        }
+                    } else {
+                        $segments[] = $part;
+                    }
+                }
+                $sorted = implode(' ', $segments);
+                if ($sorted !== $original) {
+                    $replacements[$original] = $sorted;
+                }
+            } elseif (isset($plainIndices[$j])) {
+                $idx = $plainIndices[$j];
+                if ($allClassStrings[$idx] !== $sortedValues[$idx]) {
+                    $replacements[$original] = $sortedValues[$idx];
+                }
             }
         }
 
@@ -234,6 +302,30 @@ class TailwindFormatter
             @unlink($tmpFile);
             @rmdir($tmpDir);
         }
+    }
+
+    /**
+     * Rebuild a class attribute that contains Blade directives, sorting only the class segments.
+     *
+     * @param  array<string, string>  $sortMap
+     */
+    private function rebuildBladeClassAttribute(string $classValue, array $sortMap): string
+    {
+        $parts = preg_split(self::BLADE_IN_CLASS_PATTERN, $classValue, -1, PREG_SPLIT_DELIM_CAPTURE) ?: [$classValue];
+        $segments = [];
+
+        foreach ($parts as $i => $part) {
+            if ($i % 2 === 0) {
+                $trimmed = trim($part);
+                if ($trimmed !== '') {
+                    $segments[] = $sortMap[$trimmed] ?? $trimmed;
+                }
+            } else {
+                $segments[] = $part;
+            }
+        }
+
+        return 'class="'.implode(' ', $segments).'"';
     }
 
     /**

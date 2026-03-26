@@ -13,6 +13,13 @@ class IndentationFormatter
     /** Elements whose children are not indented */
     private const NO_INDENT_ELEMENTS = ['html'];
 
+    /** Inline elements that don't affect indentation */
+    private const INLINE_ELEMENTS = [
+        'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'dfn', 'em',
+        'i', 'kbd', 'mark', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small',
+        'span', 'strong', 'sub', 'sup', 'time', 'u', 'var',
+    ];
+
     /** Blade directives that open a block */
     private const OPENING_DIRECTIVES = [
         '@if', '@foreach', '@for', '@while', '@switch',
@@ -191,9 +198,9 @@ class IndentationFormatter
                         $inMultiLineAttrValue = false;
                     } else {
                         // Content inside multiline attribute value — one extra indent
-                        // Ternary continuation lines (? or :) get an additional indent
-                        $ternary = preg_match('/^[?:](?:\s|$)/', $trimmed) ? 1 : 0;
-                        $result[] = str_repeat($indent, $level + 2 + $braceDepth + $directiveDepth + $tagBraceOffset + $ternary).$trimmed;
+                        // Continuation lines (ternary ? :, or dot-chained .method()) get an additional indent
+                        $continuation = preg_match('/^[?:](?:\s|$)|^\./', $trimmed) ? 1 : 0;
+                        $result[] = str_repeat($indent, $level + 2 + $braceDepth + $directiveDepth + $tagBraceOffset + $continuation).$trimmed;
                     }
 
                     if ($openBraces > $closeBraces) {
@@ -216,13 +223,14 @@ class IndentationFormatter
                     $closesTag = ! $braceDepth && (str_ends_with($trimmed, '>') || str_ends_with($trimmed, '/>'));
                     $startsWithClosingBracket = (bool) preg_match('/^\/?>/', $trimmed);
                     $closesTagWithBraces = $closesTag && ! $startsWithClosingBracket && (str_contains($trimmed, ']') || str_contains($trimmed, '}'));
+                    $continuation = preg_match('/^[?:](?:\s|$)|^\./', $trimmed) ? 1 : 0;
 
                     if ($closesTag && $startsWithClosingBracket) {
                         $result[] = str_repeat($indent, $level).$trimmed;
                     } elseif ($closesTagWithBraces) {
                         $result[] = str_repeat($indent, $level + 1 + $priorTagBraceOffset).$trimmed;
                     } else {
-                        $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth + $tagBraceOffset).$trimmed;
+                        $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth + $tagBraceOffset + $continuation).$trimmed;
                     }
                 }
 
@@ -450,6 +458,7 @@ class IndentationFormatter
             if (
                 in_array($tagName, self::VOID_ELEMENTS) || in_array($baseTag, self::VOID_ELEMENTS)
                 || in_array($tagName, self::NO_INDENT_ELEMENTS)
+                || in_array($tagName, self::INLINE_ELEMENTS)
             ) {
                 continue;
             }
