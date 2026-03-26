@@ -101,9 +101,9 @@ class BatchFormatterTest extends TestCase
 
         $input = <<<'BLADE'
 @php
-    $status = $intention->status;
-    $isScheduled = $status === \App\Enums\MassIntentionStatus::Scheduled;
-    $isFulfilled = $status === \App\Enums\MassIntentionStatus::Fulfilled;
+    $status = $record->status;
+    $isPending = $status === \App\Enums\Status::Pending;
+    $isComplete = $status === \App\Enums\Status::Complete;
 @endphp
 BLADE;
 
@@ -111,7 +111,7 @@ BLADE;
         $result = $results['/tmp/test.blade.php'];
 
         $this->assertStringNotContainsString('use App\\', $result);
-        $this->assertStringContainsString('\App\Enums\MassIntentionStatus::Scheduled', $result);
-        $this->assertStringContainsString('\App\Enums\MassIntentionStatus::Fulfilled', $result);
+        $this->assertStringContainsString('\App\Enums\Status::Pending', $result);
+        $this->assertStringContainsString('\App\Enums\Status::Complete', $result);
     }
 }

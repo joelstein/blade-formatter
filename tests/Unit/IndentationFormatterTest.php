@@ -192,8 +192,8 @@ class IndentationFormatterTest extends TestCase
     #[Test]
     public function it_does_not_indent_after_inline_php_expression(): void
     {
-        $input = "\n<div>\n@php(\$globalLimit = app(Settings::class)->maxRequestsPerUserPerYear)\n<flux:input wire:model=\"formMaxRequestsPerYear\" />\n<flux:switch wire:model=\"formIsAdmin\" />\n</div>";
-        $expected = "\n<div>\n    @php(\$globalLimit = app(Settings::class)->maxRequestsPerUserPerYear)\n    <flux:input wire:model=\"formMaxRequestsPerYear\" />\n    <flux:switch wire:model=\"formIsAdmin\" />\n</div>";
+        $input = "\n<div>\n@php(\$limit = app(Config::class)->perPage)\n<flux:input wire:model=\"name\" />\n<flux:switch wire:model=\"active\" />\n</div>";
+        $expected = "\n<div>\n    @php(\$limit = app(Config::class)->perPage)\n    <flux:input wire:model=\"name\" />\n    <flux:switch wire:model=\"active\" />\n</div>";
 
         $this->assertSame($expected, $this->indent($input));
     }
@@ -544,8 +544,8 @@ class IndentationFormatterTest extends TestCase
     #[Test]
     public function it_does_not_indent_for_inline_tags_that_wrap_in_text(): void
     {
-        $input = "\n<li>\nClick <x-ui>Edit Schedule</x-ui>, select the range of hours\nyou want to close, and click <x-ui>Edit Selected\nHours</x-ui>.\n</li>";
-        $expected = "\n<li>\n    Click <x-ui>Edit Schedule</x-ui>, select the range of hours\n    you want to close, and click <x-ui>Edit Selected\n    Hours</x-ui>.\n</li>";
+        $input = "\n<li>\nClick <x-ui>Settings</x-ui>, select the items\nyou want to update, and click <x-ui>Save\nChanges</x-ui>.\n</li>";
+        $expected = "\n<li>\n    Click <x-ui>Settings</x-ui>, select the items\n    you want to update, and click <x-ui>Save\n    Changes</x-ui>.\n</li>";
 
         $this->assertSame($expected, $this->indent($input));
     }
@@ -553,8 +553,8 @@ class IndentationFormatterTest extends TestCase
     #[Test]
     public function it_does_not_indent_for_inline_elements_that_wrap(): void
     {
-        $input = "\n<p>\nHowever,\n<strong>administrators and captains can create commitments on\nclosed hours</strong>. This provides a creative workaround.\n</p>";
-        $expected = "\n<p>\n    However,\n    <strong>administrators and captains can create commitments on\n    closed hours</strong>. This provides a creative workaround.\n</p>";
+        $input = "\n<p>\nHowever,\n<strong>admin users can override the default settings for\nthis section</strong>. This provides additional flexibility.\n</p>";
+        $expected = "\n<p>\n    However,\n    <strong>admin users can override the default settings for\n    this section</strong>. This provides additional flexibility.\n</p>";
 
         $this->assertSame($expected, $this->indent($input));
     }
@@ -673,8 +673,8 @@ class IndentationFormatterTest extends TestCase
     #[Test]
     public function it_does_not_indent_for_components_with_inline_text(): void
     {
-        $input = "\n<p>\n<x-article-link id=\"test\">Learn more about\nprinting the schedule</x-article-link>.\nMore text here.\n</p>";
-        $expected = "\n<p>\n    <x-article-link id=\"test\">Learn more about\n    printing the schedule</x-article-link>.\n    More text here.\n</p>";
+        $input = "\n<p>\n<x-nav-link id=\"test\">Learn more about\nthis feature</x-nav-link>.\nMore text here.\n</p>";
+        $expected = "\n<p>\n    <x-nav-link id=\"test\">Learn more about\n    this feature</x-nav-link>.\n    More text here.\n</p>";
 
         $this->assertSame($expected, $this->indent($input));
     }
@@ -697,23 +697,23 @@ class IndentationFormatterTest extends TestCase
     {
         $input = <<<'BLADE'
 
-<ui-disclosure
-{{ $attributes->class('group/disclosure') }}
-@if ($expanded === true) open @endif
-data-flux-navlist-group
+<x-dropdown
+{{ $attributes->class('group') }}
+@if ($open) expanded @endif
+data-role="menu"
 >
 <div>Content</div>
-</ui-disclosure>
+</x-dropdown>
 BLADE;
         $expected = <<<'BLADE'
 
-<ui-disclosure
-    {{ $attributes->class('group/disclosure') }}
-    @if ($expanded === true) open @endif
-    data-flux-navlist-group
+<x-dropdown
+    {{ $attributes->class('group') }}
+    @if ($open) expanded @endif
+    data-role="menu"
 >
     <div>Content</div>
-</ui-disclosure>
+</x-dropdown>
 BLADE;
 
         $this->assertSame($expected, $this->indent($input));
