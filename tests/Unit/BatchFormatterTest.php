@@ -111,8 +111,9 @@ BLADE;
         $result = $results['/tmp/test.blade.php'];
 
         $this->assertStringNotContainsString('use App\\', $result);
-        $this->assertStringContainsString('\App\Enums\Status::Pending', $result);
-        $this->assertStringContainsString('\App\Enums\Status::Complete', $result);
+        $this->assertStringNotContainsString('\App\\', $result);
+        $this->assertStringContainsString('App\Enums\Status::Pending', $result);
+        $this->assertStringContainsString('App\Enums\Status::Complete', $result);
     }
 
     #[Test]
@@ -136,8 +137,8 @@ BLADE;
         $result = $results['/tmp/test.blade.php'];
 
         $this->assertStringNotContainsString('use App\\', $result);
-        $this->assertStringContainsString('\App\Enums\Status::Pending', $result);
-        $this->assertStringContainsString('\App\Enums\Status::Complete', $result);
+        $this->assertStringContainsString('App\Enums\Status::Pending', $result);
+        $this->assertStringContainsString('App\Enums\Status::Complete', $result);
     }
 
     #[Test]
@@ -161,6 +162,31 @@ BLADE;
 
         $this->assertStringNotContainsString('use App\\', $result);
         $this->assertStringNotContainsString('S::', $result);
-        $this->assertStringContainsString('\App\Enums\Status::Pending', $result);
+        $this->assertStringContainsString('App\Enums\Status::Pending', $result);
+    }
+
+    #[Test]
+    public function it_expands_instanceof_and_new_references_in_php_blocks(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: true,
+            enableTailwindSort: false,
+        );
+
+        $input = <<<'BLADE'
+@php
+    use App\Models\Post;
+
+    $isPost = $item instanceof Post;
+    $post = new Post;
+@endphp
+BLADE;
+
+        $results = $formatter->formatBatch(['/tmp/test.blade.php' => $input]);
+        $result = $results['/tmp/test.blade.php'];
+
+        $this->assertStringNotContainsString('use App\\', $result);
+        $this->assertStringContainsString('instanceof App\Models\Post', $result);
+        $this->assertStringContainsString('new App\Models\Post', $result);
     }
 }

@@ -107,11 +107,12 @@ class PintFormatter
             @unlink($blockConfig);
         }
 
-        // Strip <?php prefix and expand use statements
+        // Strip <?php prefix, expand use statements, and normalize FQCNs
         $results = [];
         foreach ($formatted as $key => $code) {
             $code = (string) preg_replace('/^<\?php\s*\n?/', '', $code);
             $code = $this->expandUseStatements($code);
+            $code = $this->stripLeadingBackslashes($code);
             $results[$key] = $code;
         }
 
@@ -160,7 +161,7 @@ class PintFormatter
             $fqcn = $match[1];
             $alias = $match[2] ?? null;
             $shortName = $alias ?? substr($fqcn, strrpos($fqcn, '\\') + 1);
-            $replacements[$shortName] = '\\'.$fqcn;
+            $replacements[$shortName] = $fqcn;
 
             // Remove the use statement and any trailing blank line
             $code = str_replace($match[0]."\n\n", '', $code);
@@ -181,6 +182,18 @@ class PintFormatter
         }
 
         return $code;
+    }
+
+    /**
+     * Strip leading backslashes from fully qualified class names.
+     *
+     * In Blade @php blocks (global namespace), App\Foo and \App\Foo are
+     * equivalent. The backslash-free form is the Laravel convention.
+     */
+    private function stripLeadingBackslashes(string $code): string
+    {
+        // Match \ClassName (uppercase after backslash, not inside strings)
+        return (string) preg_replace('/(?<![\\\\a-zA-Z])\\\\([A-Z])/', '$1', $code);
     }
 
     public static function resolvePintPath(): string
