@@ -94,6 +94,28 @@ class ParserTest extends TestCase
     }
 
     #[Test]
+    public function it_does_not_treat_inline_php_as_sfc(): void
+    {
+        $content = <<<'BLADE'
+@props([
+    'expandable' => false,
+    'expanded' => true,
+])
+
+<?php if ($expandable): ?>
+<div>Expandable</div>
+<?php else: ?>
+<div>Static</div>
+<?php endif; ?>
+BLADE;
+
+        $result = Parser::parseSfc($content);
+
+        $this->assertFalse($result['isSfc']);
+        $this->assertSame($content, $result['blade']);
+    }
+
+    #[Test]
     public function it_roundtrips_through_parse_and_assemble(): void
     {
         $content = "<?php\n\nuse App\\Models\\User;\n?>\n<div>\n    <h1>Hello</h1>\n</div>";
