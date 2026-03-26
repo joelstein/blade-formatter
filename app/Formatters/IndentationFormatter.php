@@ -421,10 +421,11 @@ class IndentationFormatter
                 $directiveForStack = '@'.$directiveStackMatch[1];
                 if (in_array($directiveForStack, self::OPENING_DIRECTIVES)) {
                     $isInlinePhp = $directiveStackMatch[1] === 'php' && preg_match('/^@php\s*\(/', $trimmed);
+                    $isInlineSection = $directiveStackMatch[1] === 'section' && preg_match('/^@section\s*\([^)]*,/', $trimmed);
                     $closing = $this->directivePairs[$directiveForStack] ?? null;
                     $isSingleLine = $closing !== null && str_contains($trimmed, $closing);
 
-                    if (! $isInlinePhp && ! $isSingleLine) {
+                    if (! $isInlinePhp && ! $isInlineSection && ! $isSingleLine) {
                         $directiveStack[] = $preOpeningLevel;
                     }
                 }
@@ -448,8 +449,11 @@ class IndentationFormatter
             $directive = '@'.$directiveMatch[1];
             if (in_array($directive, self::OPENING_DIRECTIVES)) {
                 // @php(...) is an inline expression, not a block — no indent change
+                // @section('name', 'value') with two arguments is an inline section
                 if ($directiveMatch[1] === 'php' && preg_match('/^@php\s*\(/', $line)) {
                     // skip — inline @php expression
+                } elseif ($directiveMatch[1] === 'section' && preg_match('/^@section\s*\([^)]*,/', $line)) {
+                    // skip — inline @section('name', 'value')
                 } else {
                     $closing = $this->directivePairs[$directive] ?? null;
                     if ($closing === null || ! str_contains($line, $closing)) {

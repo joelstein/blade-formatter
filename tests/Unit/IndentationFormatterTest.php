@@ -376,6 +376,15 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_treats_inline_section_with_two_arguments_as_non_block(): void
+    {
+        $input = "\n@extends('pdf')\n\n@section('title', 'Invoice')\n\n@section('content')\n<div>Content</div>\n@endsection";
+        $expected = "\n@extends('pdf')\n\n@section('title', 'Invoice')\n\n@section('content')\n    <div>Content</div>\n@endsection";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_indents_continuation_lines_inside_braces(): void
     {
         $input = "\n{!! t('test', [\n'key' => 'value'\n. 'more',\n]) !!}";
