@@ -60,19 +60,16 @@ function getPhpBlocks(document) {
     }
     const blocks = [];
     const text = document.getText();
-    // Match <?php ... ?> blocks (SFC sections)
-    const sfcRegex = /<\?php[\s\S]*?\?>/g;
+    // Match <?php ... ?> blocks (SFC sections only)
+    // Note: @php/@endphp blocks are not included — the Blade grammar
+    // already provides PHP highlighting for those, and switching the
+    // entire document language would break it (no <?php tag for the
+    // PHP language server to find).
+    const regex = /<\?php[\s\S]*?\?>/g;
     let match;
-    while ((match = sfcRegex.exec(text)) !== null) {
+    while ((match = regex.exec(text)) !== null) {
         blocks.push({ start: match.index, end: match.index + match[0].length });
     }
-    // Match multiline @php ... @endphp blocks
-    const phpBlockRegex = /@php\s*\n[\s\S]*?@endphp/g;
-    while ((match = phpBlockRegex.exec(text)) !== null) {
-        blocks.push({ start: match.index, end: match.index + match[0].length });
-    }
-    // Sort by position for consistent lookups
-    blocks.sort((a, b) => a.start - b.start);
     blockCache.set(key, { version: document.version, blocks });
     return blocks;
 }
