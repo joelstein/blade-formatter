@@ -18,7 +18,7 @@ class IndentationFormatter
         '@auth', '@guest', '@can', '@cannot', '@canany',
         '@env', '@production',
         '@unless', '@isset', '@empty', '@forelse',
-        '@verbatim', '@php',
+        '@verbatim',
         '@once', '@persist', '@placeholder',
         '@fragment', '@teleport',
         '@assets', '@script', '@style',
@@ -34,6 +34,11 @@ class IndentationFormatter
     private const PRESERVE_BLOCKS = [
         ['open' => '/^@verbatim\b/', 'close' => '/^@endverbatim\b/'],
         ['open' => '/^<pre[\s>]/', 'close' => '/^<\/pre\s*>/'],
+    ];
+
+    /** Blocks whose content is re-indented to the current level but internal whitespace is preserved */
+    private const INDENT_PRESERVE_BLOCKS = [
+        ['open' => '/^@php\s*$/', 'close' => '/^@endphp\b/'],
     ];
 
     /** @var list<string> */
@@ -69,6 +74,8 @@ class IndentationFormatter
         $tagBraceOffset = 0;
         $inCaseBlock = false;
         $preserveBlock = null;
+        $indentPreserveBlock = null;
+        $indentPreserveLevel = 0;
 
         for ($lineIndex = 0; $lineIndex < count($lines); $lineIndex++) {
             $rawLine = $lines[$lineIndex];
@@ -90,6 +97,22 @@ class IndentationFormatter
                     $preserveBlock = null;
                 } else {
                     $result[] = $rawLine;
+                }
+
+                continue;
+            }
+
+            // --- Handle indent-preserved blocks (@php) ---
+            // Content is shifted to the current indent level but internal whitespace is preserved
+            if ($indentPreserveBlock !== null) {
+                if (preg_match($indentPreserveBlock['close'], $trimmed)) {
+                    $closingAdjust = $this->countClosingAdjustments($trimmed);
+                    $level = max(0, $level + $closingAdjust);
+                    $result[] = str_repeat($indent, $level).$trimmed;
+                    $indentPreserveBlock = null;
+                } else {
+                    // Prepend base indent, preserving the line's own relative whitespace from Pint
+                    $result[] = str_repeat($indent, $indentPreserveLevel).$rawLine;
                 }
 
                 continue;
@@ -118,6 +141,25 @@ class IndentationFormatter
                 if (! $closesOnSameLine) {
                     $preserveBlock = ['close' => $preserveMatch['close']];
                 }
+
+                continue;
+            }
+
+            // Check if this line opens an indent-preserved block
+            $indentPreserveMatch = null;
+            foreach (self::INDENT_PRESERVE_BLOCKS as $block) {
+                if (preg_match($block['open'], $trimmed)) {
+                    $indentPreserveMatch = $block;
+                    break;
+                }
+            }
+
+            if ($indentPreserveMatch !== null) {
+                $closingAdjust = $this->countClosingAdjustments($trimmed);
+                $level = max(0, $level + $closingAdjust);
+                $result[] = str_repeat($indent, $level).$trimmed;
+                $indentPreserveLevel = $level + 1;
+                $indentPreserveBlock = ['close' => $indentPreserveMatch['close']];
 
                 continue;
             }

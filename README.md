@@ -67,7 +67,7 @@ Create a `blade-formatter.json` in your project root:
 
 ## VS Code Extension
 
-The extension provides format-on-save and automatic PHP/Blade language switching in Livewire SFCs and `@php`/`@endphp` blocks. All settings are under `bladeFormatter.*`:
+The extension provides format-on-save and automatic PHP/Blade language switching in Livewire SFCs. All settings are under `bladeFormatter.*`:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
