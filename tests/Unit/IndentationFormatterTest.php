@@ -636,4 +636,57 @@ class IndentationFormatterTest extends TestCase
 
         $this->assertSame($expected, $this->indent($input));
     }
+
+    // ── Level restore with forgotten closing tags ───────────────────
+
+    #[Test]
+    public function it_restores_level_after_conditional_wrap_and_tracks_forgotten_closing_tag(): void
+    {
+        $input = "\n@if (\$outer)\n@if (\$wrap)\n<div>\n@endif\n<figure>\n<p>Content</p>\n</figure>\n@if (\$wrap)\n</div>\n@endif\n@endif";
+        $expected = "\n@if (\$outer)\n    @if (\$wrap)\n        <div>\n    @endif\n    <figure>\n        <p>Content</p>\n    </figure>\n    @if (\$wrap)\n        </div>\n    @endif\n@endif";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── Nested ternary depth ────────────────────────────────────────
+
+    #[Test]
+    public function it_indents_nested_ternary_operators_with_cumulative_depth(): void
+    {
+        $input = "\n<div\n:class=\"a\n? 'x'\n: b\n? 'y'\n: 'z'\"\n></div>";
+        $expected = "\n<div\n    :class=\"a\n        ? 'x'\n        : b\n            ? 'y'\n            : 'z'\"\n></div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_resets_ternary_depth_on_non_ternary_lines(): void
+    {
+        $input = "\n<div\n:class=\"a\n? 'x'\n: 'y'\"\nclass=\"test\"\n:other=\"c\n? 'p'\n: 'q'\"\n></div>";
+        $expected = "\n<div\n    :class=\"a\n        ? 'x'\n        : 'y'\"\n    class=\"test\"\n    :other=\"c\n        ? 'p'\n        : 'q'\"\n></div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── Component inline text-after-tag ─────────────────────────────
+
+    #[Test]
+    public function it_does_not_indent_for_components_with_inline_text(): void
+    {
+        $input = "\n<p>\n<x-article-link id=\"test\">Learn more about\nprinting the schedule</x-article-link>.\nMore text here.\n</p>";
+        $expected = "\n<p>\n    <x-article-link id=\"test\">Learn more about\n    printing the schedule</x-article-link>.\n    More text here.\n</p>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── Logical operators are not continuation-indented ─────────────
+
+    #[Test]
+    public function it_does_not_add_continuation_indent_for_logical_operators(): void
+    {
+        $input = "\n@if (\n! \$a\n&& ! \$b\n|| \$c\n)\n<p>Content</p>\n@endif";
+        $expected = "\n@if (\n    ! \$a\n    && ! \$b\n    || \$c\n)\n    <p>Content</p>\n@endif";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
 }

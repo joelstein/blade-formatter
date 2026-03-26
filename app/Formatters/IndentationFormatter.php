@@ -85,6 +85,7 @@ class IndentationFormatter
         $tagBraceOffset = 0;
         $inMultiLineDirectiveCondition = false;
         $inMultiLineAttrValue = false;
+        $ternaryDepth = 0;
         $inCaseBlock = false;
         /** @var list<int> */
         $directiveStack = [];
@@ -204,8 +205,13 @@ class IndentationFormatter
                         $inMultiLineAttrValue = false;
                     } else {
                         // Content inside multiline attribute value — one extra indent
-                        // Continuation lines (ternary ? :, or dot-chained .method()) get an additional indent
-                        $continuation = preg_match('/^[?:](?:\s|$)|^\./', $trimmed) ? 1 : 0;
+                        // Ternary operators track cumulative depth for nested ternaries
+                        if (preg_match('/^\?(?:\s|$)/', $trimmed)) {
+                            $ternaryDepth++;
+                        } elseif (! preg_match('/^:(?:\s|$)/', $trimmed)) {
+                            $ternaryDepth = 0;
+                        }
+                        $continuation = $ternaryDepth > 0 ? $ternaryDepth : (preg_match('/^\./', $trimmed) ? 1 : 0);
                         $result[] = str_repeat($indent, $level + 2 + $braceDepth + $directiveDepth + $tagBraceOffset + $continuation).$trimmed;
                     }
 
@@ -229,7 +235,14 @@ class IndentationFormatter
                     $closesTag = ! $braceDepth && (str_ends_with($trimmed, '>') || str_ends_with($trimmed, '/>'));
                     $startsWithClosingBracket = (bool) preg_match('/^\/?>/', $trimmed);
                     $closesTagWithBraces = $closesTag && ! $startsWithClosingBracket && (str_contains($trimmed, ']') || str_contains($trimmed, '}'));
-                    $continuation = preg_match('/^[?:](?:\s|$)|^\./', $trimmed) ? 1 : 0;
+
+                    // Ternary operators track cumulative depth for nested ternaries
+                    if (preg_match('/^\?(?:\s|$)/', $trimmed)) {
+                        $ternaryDepth++;
+                    } elseif (! preg_match('/^:(?:\s|$)/', $trimmed)) {
+                        $ternaryDepth = 0;
+                    }
+                    $continuation = $ternaryDepth > 0 ? $ternaryDepth : (preg_match('/^\./', $trimmed) ? 1 : 0);
 
                     if ($closesTag && $startsWithClosingBracket) {
                         $result[] = str_repeat($indent, $level).$trimmed;
@@ -246,6 +259,7 @@ class IndentationFormatter
 
                 // Detect multiline attribute value opening (e.g. x-on:click="\n)
                 if (str_ends_with($trimmed, '="') || str_ends_with($trimmed, "='")) {
+                    $ternaryDepth = 0;
                     $inMultiLineAttrValue = true;
                 }
 
