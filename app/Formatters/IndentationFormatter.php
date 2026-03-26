@@ -390,7 +390,8 @@ class IndentationFormatter
     }
 
     /**
-     * Strip Blade expression delimiters so their braces don't affect depth counting.
+     * Strip Blade expression delimiters and quoted string contents
+     * so their braces don't affect depth counting.
      */
     private function stripBladeDelimiters(string $line): string
     {
@@ -401,6 +402,15 @@ class IndentationFormatter
         $line = str_replace('!!}', '   ', $line);
         $line = str_replace('{{', '  ', $line);
         $line = str_replace('}}', '  ', $line);
+
+        // Strip content inside quoted strings so braces in string literals
+        // (e.g. ICU format strings like '{count, plural, one {# hour}}')
+        // don't affect brace depth counting
+        $line = (string) preg_replace_callback(
+            '/([\'"])(?:(?!\1).)*\1/',
+            fn (array $m): string => $m[1].str_repeat(' ', max(0, strlen($m[0]) - 2)).$m[1],
+            $line,
+        );
 
         return $line;
     }
