@@ -207,6 +207,44 @@ class IndentationFormatterTest extends TestCase
         $this->assertSame($expected, $this->indent($input));
     }
 
+    #[Test]
+    public function it_preserves_relative_whitespace_in_php_blocks(): void
+    {
+        $input = "\n<div>\n@php\n\$list = collect(\$items)\n    ->map(fn (\$i) => \$i->name)\n    ->join(', ');\n@endphp\n</div>";
+        $expected = "\n<div>\n    @php\n        \$list = collect(\$items)\n            ->map(fn (\$i) => \$i->name)\n            ->join(', ');\n    @endphp\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_placeholder_endplaceholder_blocks(): void
+    {
+        $input = "\n@placeholder\n<p>Loading...</p>\n@endplaceholder";
+        $expected = "\n@placeholder\n    <p>Loading...</p>\n@endplaceholder";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── Brace handling ──────────────────────────────────────────────
+
+    #[Test]
+    public function it_handles_else_brace_at_correct_indent(): void
+    {
+        $input = "\n<div>\nif (\$a) {\n\$b = 1;\n} else {\n\$b = 2;\n}\n</div>";
+        $expected = "\n<div>\n    if (\$a) {\n        \$b = 1;\n    } else {\n        \$b = 2;\n    }\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_ignores_braces_inside_quoted_strings(): void
+    {
+        $input = "\n<div>\n@t('{count, plural, one {# item} other {# items}}')\n<p>After</p>\n</div>";
+        $expected = "\n<div>\n    @t('{count, plural, one {# item} other {# items}}')\n    <p>After</p>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
     // ── Multi-line tag indentation ───────────────────────────────────
 
     #[Test]
@@ -284,10 +322,48 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_indents_x_data_brace_content_on_tag_opening_line(): void
+    {
+        $input = "\n<div class=\"flex\" x-data=\"{\nopen: false,\n}\">\n<p>Hello</p>\n</div>";
+        $expected = "\n<div class=\"flex\" x-data=\"{\n    open: false,\n}\">\n    <p>Hello</p>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_multiline_alpine_attribute_values(): void
+    {
+        $input = "\n<button\nx-on:click=\"\nconst a = 1;\nconst b = 2;\n\"\nclass=\"btn\"\n>\nClick\n</button>";
+        $expected = "\n<button\n    x-on:click=\"\n        const a = 1;\n        const b = 2;\n    \"\n    class=\"btn\"\n>\n    Click\n</button>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_indents_continuation_lines_inside_braces(): void
     {
         $input = "\n{!! t('test', [\n'key' => 'value'\n. 'more',\n]) !!}";
         $expected = "\n{!! t('test', [\n    'key' => 'value'\n        . 'more',\n]) !!}";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    // ── @class inside tags ──────────────────────────────────────────
+
+    #[Test]
+    public function it_indents_class_directive_on_tag_opening_line(): void
+    {
+        $input = "\n<div @class([\n'h-3',\n'bg-green-500' => true,\n])></div>";
+        $expected = "\n<div @class([\n    'h-3',\n    'bg-green-500' => true,\n])></div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_class_directive_on_own_attribute_line(): void
+    {
+        $input = "\n<div\n@class([\n'h-3',\n])\n>\nContent\n</div>";
+        $expected = "\n<div\n    @class([\n        'h-3',\n    ])\n>\n    Content\n</div>";
 
         $this->assertSame($expected, $this->indent($input));
     }

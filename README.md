@@ -7,7 +7,7 @@ A tool that formats Blade templates and Livewire Single File Components. Like [L
 Blade Formatter runs three formatters in sequence:
 
 1. **PHP formatting** — Formats PHP in Livewire SFC sections and `@php`/`@endphp` blocks using Laravel Pint
-2. **Blade indentation** — Auto-indents Blade templates with proper nesting for directives, HTML, and components
+2. **Blade indentation** — Auto-indents Blade templates with proper nesting for directives, HTML, components, and Alpine.js attributes
 3. **Tailwind class sorting** — Sorts Tailwind CSS classes using Prettier with [prettier-plugin-tailwindcss](https://github.com/tailwindlabs/prettier-plugin-tailwindcss)
 
 Each formatter can be enabled or disabled independently.

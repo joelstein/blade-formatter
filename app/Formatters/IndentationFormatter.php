@@ -72,6 +72,7 @@ class IndentationFormatter
         $braceDepth = 0;
         $directiveDepth = 0;
         $tagBraceOffset = 0;
+        $inMultiLineAttrValue = false;
         $inCaseBlock = false;
         $preserveBlock = null;
         $indentPreserveBlock = null;
@@ -177,6 +178,24 @@ class IndentationFormatter
                     }
                 }
 
+                // Handle multiline attribute values (e.g. x-on:click="...\n...\n")
+                if ($inMultiLineAttrValue) {
+                    if ($trimmed === '"' || $trimmed === "'") {
+                        // Closing quote — same indent as the attribute that opened it
+                        $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth + $tagBraceOffset).$trimmed;
+                        $inMultiLineAttrValue = false;
+                    } else {
+                        // Content inside multiline attribute value — one extra indent
+                        $result[] = str_repeat($indent, $level + 2 + $braceDepth + $directiveDepth + $tagBraceOffset).$trimmed;
+                    }
+
+                    if ($openBraces > $closeBraces) {
+                        $braceDepth += $openBraces - $closeBraces;
+                    }
+
+                    continue;
+                }
+
                 // Detect Blade directives inside multi-line tags (e.g. @if/@endif for conditional attributes)
                 $isDirectiveLine = (bool) preg_match('/^@(\w+)/', $trimmed, $tagDirectiveMatch);
                 $tagDirective = $isDirectiveLine ? '@'.$tagDirectiveMatch[1] : null;
@@ -204,6 +223,11 @@ class IndentationFormatter
                     $directiveDepth++;
                 }
 
+                // Detect multiline attribute value opening (e.g. x-on:click="\n)
+                if (str_ends_with($trimmed, '="') || str_ends_with($trimmed, "='")) {
+                    $inMultiLineAttrValue = true;
+                }
+
                 if ($openBraces > $closeBraces) {
                     $braceDepth += $openBraces - $closeBraces;
                 }
@@ -215,6 +239,7 @@ class IndentationFormatter
                     $braceDepth = 0;
                     $directiveDepth = 0;
                     $tagBraceOffset = 0;
+                    $inMultiLineAttrValue = false;
 
                     if (! $multiLineTagIsSelfClosing && ! $multiLineTagIsVoid) {
                         $level++;
