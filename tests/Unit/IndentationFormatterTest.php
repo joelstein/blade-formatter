@@ -367,6 +367,49 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_indents_else_blocks_in_multiline_attribute_values(): void
+    {
+        $input = <<<'BLADE'
+
+<input
+x-effect="
+rawValue; focused;
+$nextTick(() => {
+if (!focused) {
+const num = parseFloat(rawValue);
+if (rawValue !== '' && !isNaN(num) && isFinite(num)) {
+$el.value = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+} else {
+$el.value = rawValue;
+}
+}
+});
+"
+/>
+BLADE;
+        $expected = <<<'BLADE'
+
+<input
+    x-effect="
+        rawValue; focused;
+        $nextTick(() => {
+            if (!focused) {
+                const num = parseFloat(rawValue);
+                if (rawValue !== '' && !isNaN(num) && isFinite(num)) {
+                    $el.value = num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                } else {
+                    $el.value = rawValue;
+                }
+            }
+        });
+    "
+/>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_outdents_closing_paren_of_multi_line_directive_condition(): void
     {
         $input = "\n@if (\n! app()->isLocal()\n&& ! auth()->check()\n|| \$override\n)\n<p>Content</p>\n@endif";

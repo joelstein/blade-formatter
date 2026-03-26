@@ -204,6 +204,16 @@ class IndentationFormatter
                         $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth + $tagBraceOffset).$trimmed;
                         $inMultiLineAttrValue = false;
                     } else {
+                        // Lines starting with } or ] where opens >= closes (e.g. "} else {")
+                        // need a leading-close adjustment since the pre-check only handles
+                        // the case where closes > opens
+                        $leadingClose = $braceDepth > 0
+                            && (bool) preg_match('/^[}\]]/', $trimmed)
+                            && $openBraces >= $closeBraces ? 1 : 0;
+                        if ($leadingClose) {
+                            $braceDepth--;
+                        }
+
                         // Content inside multiline attribute value — one extra indent
                         // Ternary operators track cumulative depth for nested ternaries
                         if (preg_match('/^\?(?:\s|$)/', $trimmed)) {
@@ -213,10 +223,13 @@ class IndentationFormatter
                         }
                         $continuation = $ternaryDepth > 0 ? $ternaryDepth : (preg_match('/^\./', $trimmed) ? 1 : 0);
                         $result[] = str_repeat($indent, $level + 2 + $braceDepth + $directiveDepth + $tagBraceOffset + $continuation).$trimmed;
-                    }
 
-                    if ($openBraces > $closeBraces) {
-                        $braceDepth += $openBraces - $closeBraces;
+                        // Remaining opens after accounting for the leading close
+                        if ($leadingClose && $openBraces > ($closeBraces - $leadingClose)) {
+                            $braceDepth += $openBraces - ($closeBraces - $leadingClose);
+                        } elseif (! $leadingClose && $openBraces > $closeBraces) {
+                            $braceDepth += $openBraces - $closeBraces;
+                        }
                     }
 
                     continue;
