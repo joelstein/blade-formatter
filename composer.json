@@ -15,7 +15,8 @@
         "laravel-zero/phar-updater": "^1.4",
         "laravel/pint": "^1.29",
         "mockery/mockery": "^1.6",
-        "phpunit/phpunit": "^11.0"
+        "nunomaduro/pao": "^0.1",
+        "phpunit/phpunit": "^13.0"
     },
     "bin": ["builds/blade-format"],
     "autoload": {
