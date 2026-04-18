@@ -78,6 +78,16 @@ The extension provides format-on-save and automatic PHP/Blade language switching
 
 Formatting options (indent size, enable/disable formatters, etc.) are configured in `blade-formatter.json` — not in VS Code settings. This keeps CLI and editor output consistent.
 
+> **Note:** If you use the [Laravel Pint](https://marketplace.visualstudio.com/items?itemName=laravel.vscode-laravel) VS Code extension with `Laravel.pint.runOnSave` enabled, Pint will strip `use` statements from SFCs that are only referenced in Blade — undoing the blade formatter's work. Disable Pint's run-on-save for Blade files in your `.vscode/settings.json`:
+>
+> ```json
+> {
+>   "[blade]": {
+>     "Laravel.pint.runOnSave": false
+>   }
+> }
+> ```
+
 ## CI Integration
 
 ```yaml
