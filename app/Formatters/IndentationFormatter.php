@@ -548,8 +548,12 @@ class IndentationFormatter
             return $count;
         }
 
+        // Neutralize PHP operators containing `>` so they don't prematurely
+        // terminate attribute content in the tag regex (e.g. `=>` inside @class)
+        $searchLine = str_replace(['=>', '->', '>='], '  ', $line);
+
         // HTML/component opening tags (not self-closing, not void)
-        preg_match_all('/<([\w:.-]+)(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $line, $openTagMatches, PREG_SET_ORDER);
+        preg_match_all('/<([\w:.-]+)(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $searchLine, $openTagMatches, PREG_SET_ORDER);
         foreach ($openTagMatches as $match) {
             $tagName = strtolower($match[1]);
             $baseTag = explode(':', $tagName)[0] ?: $tagName;
@@ -566,8 +570,8 @@ class IndentationFormatter
                 $isInlineOrComponent = in_array($tagName, self::INLINE_ELEMENTS)
                     || str_contains($tagName, '-') || str_contains($tagName, ':');
                 if ($isInlineOrComponent) {
-                    $posAfterTag = strpos($line, $match[0]) + strlen($match[0]);
-                    $textAfterTag = substr($line, $posAfterTag);
+                    $posAfterTag = strpos($searchLine, $match[0]) + strlen($match[0]);
+                    $textAfterTag = substr($searchLine, $posAfterTag);
                     $textBeforeNextTag = preg_match('/^([^<]*)/', $textAfterTag, $m) ? $m[1] : '';
                     if (trim($textBeforeNextTag) !== '') {
                         continue;
@@ -579,7 +583,7 @@ class IndentationFormatter
         }
 
         // Dynamic opening tags like <{{ $var }}>
-        preg_match_all('/<\{\{.*?\}\}(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $line, $dynamicOpenMatches, PREG_SET_ORDER);
+        preg_match_all('/<\{\{.*?\}\}(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $searchLine, $dynamicOpenMatches, PREG_SET_ORDER);
         foreach ($dynamicOpenMatches as $match) {
             if (! str_ends_with($match[0], '/>')) {
                 $count++;

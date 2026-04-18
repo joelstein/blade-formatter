@@ -456,6 +456,15 @@ BLADE;
         $this->assertSame($expected, $this->indent($input));
     }
 
+    #[Test]
+    public function it_indents_children_when_tag_has_inline_class_directive_with_arrow_operators(): void
+    {
+        $input = "\n<nav @class(['active' => \$open, 'hidden' => ! \$open])>\n@if (\$show)\n<p>Hi</p>\n@endif\n</nav>";
+        $expected = "\n<nav @class(['active' => \$open, 'hidden' => ! \$open])>\n    @if (\$show)\n        <p>Hi</p>\n    @endif\n</nav>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
     // ── Brace nesting outside tags ───────────────────────────────────
 
     #[Test]
