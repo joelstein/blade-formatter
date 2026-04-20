@@ -181,6 +181,24 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_aligns_comment_before_case_with_the_case_directive(): void
+    {
+        $input = "\n@switch(\$type)\n{{-- handles a --}}\n@case('a')\n<p>A</p>\n@break\n{{-- handles b --}}\n@case('b')\n<p>B</p>\n@break\n@endswitch";
+        $expected = "\n@switch(\$type)\n    {{-- handles a --}}\n    @case('a')\n        <p>A</p>\n        @break\n    {{-- handles b --}}\n    @case('b')\n        <p>B</p>\n        @break\n@endswitch";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_aligns_comment_before_case_when_separated_by_blank_line(): void
+    {
+        $input = "\n@switch(\$type)\n\n{{-- handles a --}}\n@case('a')\n<p>A</p>\n@break\n@endswitch";
+        $expected = "\n@switch(\$type)\n\n    {{-- handles a --}}\n    @case('a')\n        <p>A</p>\n        @break\n@endswitch";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_does_not_indent_after_inline_php_endphp(): void
     {
         $input = "\n<div>\n@php \$var = 'value'; @endphp\n<p>After</p>\n</div>";

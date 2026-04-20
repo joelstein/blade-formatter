@@ -312,13 +312,25 @@ class IndentationFormatter
 
             // --- Normal line processing ---
 
-            // Look-ahead: comment before midblock directive
+            // Look-ahead: comment before midblock or case directive — align with the directive
             if (preg_match('/^\{\{--.*--\}\}$/', $trimmed)) {
                 $nextTrimmed = $this->findNextNonEmptyLine($lines, $lineIndex + 1);
-                if ($nextTrimmed !== null && ($this->isMidblockLine($nextTrimmed) || $this->isCaseDirective($nextTrimmed))) {
-                    $result[] = str_repeat($indent, max(0, $level - 1)).$trimmed;
+                if ($nextTrimmed !== null) {
+                    if ($this->isMidblockLine($nextTrimmed)) {
+                        // @else/@elseif sit one level shallower than the body
+                        $result[] = str_repeat($indent, max(0, $level - 1)).$trimmed;
 
-                    continue;
+                        continue;
+                    }
+
+                    if ($this->isCaseDirective($nextTrimmed)) {
+                        // @case/@default sit at the level just inside @switch — same as the
+                        // current level when the previous case has already closed (or none yet)
+                        $caseLevel = $inCaseBlock ? max(0, $level - 1) : $level;
+                        $result[] = str_repeat($indent, $caseLevel).$trimmed;
+
+                        continue;
+                    }
                 }
             }
 
