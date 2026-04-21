@@ -31,7 +31,7 @@ class IndentationFormatter
         '@verbatim',
         '@once', '@persist', '@placeholder',
         '@fragment', '@teleport',
-        '@assets', '@script', '@style',
+        '@assets', '@script',
     ];
 
     /** Blade directives that sit at the same indent as their opening directive */

@@ -483,6 +483,15 @@ BLADE;
         $this->assertSame($expected, $this->indent($input));
     }
 
+    #[Test]
+    public function it_indents_style_directive_on_own_attribute_line(): void
+    {
+        $input = "\n<div\n@style([\n'color: red' => \$highlight,\n])\n>\nContent\n</div>";
+        $expected = "\n<div\n    @style([\n        'color: red' => \$highlight,\n    ])\n>\n    Content\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
     // ── Brace nesting outside tags ───────────────────────────────────
 
     #[Test]
