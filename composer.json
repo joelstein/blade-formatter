@@ -13,9 +13,9 @@
         "larastan/larastan": "^3.0",
         "laravel-zero/framework": "^12.1",
         "laravel-zero/phar-updater": "^1.4",
+        "laravel/pao": "^1.0",
         "laravel/pint": "^1.29",
         "mockery/mockery": "^1.6",
-        "nunomaduro/pao": "^0.1",
         "phpunit/phpunit": "^13.0"
     },
     "bin": ["builds/blade-format"],
