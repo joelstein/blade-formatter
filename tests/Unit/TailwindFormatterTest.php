@@ -135,4 +135,29 @@ class TailwindFormatterTest extends TestCase
 
         $this->assertStringContainsString("'flex font-bold text-red-500'", $result);
     }
+
+    #[Test]
+    public function it_sorts_classes_inside_attributes_class_method_calls(): void
+    {
+        $input = <<<'BLADE'
+        <div {{ $attributes->class([
+            'font-bold text-red-500 flex',
+            'mt-4 block p-2' => $active,
+        ]) }}></div>
+        BLADE;
+
+        $result = $this->formatter->format($input);
+
+        $this->assertStringContainsString("'flex font-bold text-red-500'", $result);
+        $this->assertStringContainsString('=> $active', $result);
+    }
+
+    #[Test]
+    public function it_sorts_classes_in_attributes_class_with_double_quotes(): void
+    {
+        $input = '<div {{ $attributes->class(["font-bold text-red-500 flex"]) }}></div>';
+        $result = $this->formatter->format($input);
+
+        $this->assertStringContainsString('"flex font-bold text-red-500"', $result);
+    }
 }

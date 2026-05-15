@@ -10,13 +10,16 @@ class TailwindFormatter
     /** Pattern to match Blade directives and expressions inside class attribute values */
     private const BLADE_IN_CLASS_PATTERN = '/(@\w+(?:\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\))?|\{\{.*?\}\}|\{!!.*?!!\})/';
 
+    /** Pattern to match @class([...]) directives and $var->class([...]) method calls */
+    private const CLASS_ARRAY_CALL_PATTERN = '/(?:@class|\$\w+->class)\(\[[\s\S]*?\]\)/';
+
     public function format(string $content, string $prettierPath = 'node_modules/.bin/prettier'): string
     {
         // Step 1: Sort standard class="..." attributes
         $result = $this->sortClassAttributes($prettierPath, $content);
 
-        // Step 2: Sort classes inside @class([...]) directives
-        $result = $this->sortAtClassDirectives($prettierPath, $result);
+        // Step 2: Sort classes inside @class([...]) directives and $attributes->class([...]) method calls
+        $result = $this->sortClassArrayCalls($prettierPath, $result);
 
         // Step 3: Sort classes inside :class="..." and x-bind:class="..." bindings
         $result = $this->sortBoundClassAttributes($prettierPath, $result);
@@ -48,8 +51,8 @@ class TailwindFormatter
             }
         }
 
-        // From @class([...]) directives
-        preg_match_all('/@class\(\[[\s\S]*?\]\)/', $content, $directiveMatches, PREG_SET_ORDER);
+        // From @class([...]) directives and $attributes->class([...]) method calls
+        preg_match_all(self::CLASS_ARRAY_CALL_PATTERN, $content, $directiveMatches, PREG_SET_ORDER);
         $classStringPattern = '/([\'"])((?:(?!\1).)*)\1(?:\s*=>)?/';
         foreach ($directiveMatches as $match) {
             preg_match_all($classStringPattern, $match[0], $stringMatches, PREG_SET_ORDER);
@@ -100,9 +103,9 @@ class TailwindFormatter
             return $sorted !== null ? 'class="'.$sorted.'"' : $match[0];
         }, $content) ?? $content;
 
-        // Replace in @class([...]) directives
+        // Replace in @class([...]) directives and $attributes->class([...]) method calls
         $classStringPattern = '/([\'"])((?:(?!\1).)*)\1(?:\s*=>)?/';
-        $content = (string) preg_replace_callback('/@class\(\[[\s\S]*?\]\)/', function (array $block) use ($classStringPattern, $sortMap): string {
+        $content = (string) preg_replace_callback(self::CLASS_ARRAY_CALL_PATTERN, function (array $block) use ($classStringPattern, $sortMap): string {
             return (string) preg_replace_callback($classStringPattern, function (array $match) use ($sortMap): string {
                 $quote = $match[1];
                 $classValue = $match[2];
@@ -225,11 +228,11 @@ class TailwindFormatter
     }
 
     /**
-     * Sort classes within @class([...]) directives.
+     * Sort classes within @class([...]) directives and $var->class([...]) method calls.
      */
-    private function sortAtClassDirectives(string $prettierPath, string $content): string
+    private function sortClassArrayCalls(string $prettierPath, string $content): string
     {
-        preg_match_all('/@class\(\[[\s\S]*?\]\)/', $content, $matches, PREG_SET_ORDER);
+        preg_match_all(self::CLASS_ARRAY_CALL_PATTERN, $content, $matches, PREG_SET_ORDER);
 
         if (empty($matches)) {
             return $content;
@@ -261,7 +264,7 @@ class TailwindFormatter
             $sortMap[$classStrings[$i]] = $sortedClasses[$i];
         }
 
-        return (string) preg_replace_callback('/@class\(\[[\s\S]*?\]\)/', function (array $block) use ($classStringPattern, $sortMap): string {
+        return (string) preg_replace_callback(self::CLASS_ARRAY_CALL_PATTERN, function (array $block) use ($classStringPattern, $sortMap): string {
             return (string) preg_replace_callback($classStringPattern, function (array $match) use ($sortMap): string {
                 $quote = $match[1];
                 $classValue = $match[2];
