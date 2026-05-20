@@ -7,8 +7,18 @@ use Symfony\Component\Process\Process;
 
 class TailwindFormatter
 {
-    /** Pattern to match Blade directives and expressions inside class attribute values */
-    private const BLADE_IN_CLASS_PATTERN = '/(@\w+(?:\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\))?|\{\{.*?\}\}|\{!!.*?!!\})/';
+    /**
+     * Pattern to match Blade directives and expressions inside class attribute values.
+     *
+     * Only treats `@word` as a Blade directive when it is:
+     *   - a known control-flow keyword (e.g. @if, @endif, @else), OR
+     *   - any `@word(...)` form with parentheses (e.g. @if($x), @can('foo')).
+     *
+     * Bare `@word` tokens not in the allow-list are left as class text so Tailwind
+     * container-query variants like `@sm:flex`, `@container/sidebar`, and `@max-md:hidden`
+     * pass through to the Tailwind sorter intact.
+     */
+    private const BLADE_IN_CLASS_PATTERN = '/(@\w+\((?:[^()]*|\((?:[^()]*|\([^()]*\))*\))*\)|@(?:if|elseif|else|endif|unless|endunless|isset|endisset|empty|endempty|auth|endauth|guest|endguest|hasSection|sectionMissing|can|cannot|canany|elsecan|elsecannot|endcan|endcannot|endcanany|error|enderror|production|endproduction|env|endenv|once|endonce|feature|endfeature|switch|case|break|default|endswitch|verbatim|endverbatim)\b|\{\{.*?\}\}|\{!!.*?!!\})/';
 
     /** Pattern to match @class([...]) directives and $var->class([...]) method calls */
     private const CLASS_ARRAY_CALL_PATTERN = '/(?:@class|\$\w+->class)\(\[[\s\S]*?\]\)/';

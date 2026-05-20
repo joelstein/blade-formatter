@@ -160,4 +160,59 @@ class TailwindFormatterTest extends TestCase
 
         $this->assertStringContainsString('"flex font-bold text-red-500"', $result);
     }
+
+    #[Test]
+    public function it_preserves_tailwind_container_query_variants(): void
+    {
+        $input = '<div class="text-red-500 @sm:flex bg-blue-500 @md:hidden">';
+        $result = $this->formatter->format($input);
+
+        $this->assertStringContainsString('@sm:flex', $result);
+        $this->assertStringContainsString('@md:hidden', $result);
+        $this->assertStringNotContainsString('@sm :flex', $result);
+        $this->assertStringNotContainsString('@md :hidden', $result);
+    }
+
+    #[Test]
+    public function it_preserves_bare_container_marker_and_named_containers(): void
+    {
+        $input = '<div class="@container bg-white"><div class="@container/sidebar p-4"></div></div>';
+        $result = $this->formatter->format($input);
+
+        $this->assertStringContainsString('@container', $result);
+        $this->assertStringContainsString('@container/sidebar', $result);
+    }
+
+    #[Test]
+    public function it_preserves_hyphenated_container_variants(): void
+    {
+        $input = '<div class="p-4 @max-sm:flex @min-md:hidden text-red-500">';
+        $result = $this->formatter->format($input);
+
+        $this->assertStringContainsString('@max-sm:flex', $result);
+        $this->assertStringContainsString('@min-md:hidden', $result);
+        $this->assertStringNotContainsString('@max :', $result);
+        $this->assertStringNotContainsString('@min :', $result);
+    }
+
+    #[Test]
+    public function it_preserves_arbitrary_container_breakpoints(): void
+    {
+        $input = '<div class="text-red-500 @[400px]:p-4 bg-white">';
+        $result = $this->formatter->format($input);
+
+        $this->assertStringContainsString('@[400px]:p-4', $result);
+    }
+
+    #[Test]
+    public function it_preserves_container_queries_alongside_blade_directives(): void
+    {
+        $input = '<div class="@sm:flex text-red-500 @if($x) @md:hidden bg-gray-100 @endif">';
+        $result = $this->formatter->format($input);
+
+        $this->assertStringContainsString('@sm:flex', $result);
+        $this->assertStringContainsString('@md:hidden', $result);
+        $this->assertStringContainsString('@if($x)', $result);
+        $this->assertStringContainsString('@endif', $result);
+    }
 }
