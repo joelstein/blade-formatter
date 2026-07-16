@@ -57,11 +57,11 @@
         "package": "vsce package"
     },
     "devDependencies": {
-        "@types/node": "^22.19.21",
+        "@types/node": "^26.1.1",
         "@types/vscode": "^1.85.0",
         "@vscode/vsce": "^3.7.1",
         "prettier": "^3.8.1",
         "prettier-plugin-tailwindcss": "^0.8.0",
-        "typescript": "^6.0.3"
+        "typescript": "^7.0.2"
     }
 }
