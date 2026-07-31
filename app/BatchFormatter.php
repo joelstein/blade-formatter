@@ -9,6 +9,12 @@ use Symfony\Component\Process\Process;
 
 class BatchFormatter
 {
+    private const DISABLE_MARKER = '/\{\{--\s*blade-formatter-disable\s*--\}\}/';
+
+    private const ENABLE_MARKER = '/\{\{--\s*blade-formatter-enable\s*--\}\}/';
+
+    private const PLACEHOLDER_PATTERN = '\{\{-- blade-formatter-region:(\d+) --\}\}';
+
     /** @var array<string, list<string>> */
     private array $warnings = [];
 
@@ -39,12 +45,18 @@ class BatchFormatter
             return [];
         }
 
-        // Files opting out are held back from every phase and returned verbatim.
-        $active = array_filter($files, fn (string $content): bool => ! self::isFormattingDisabled($content));
+        // Phase 0: Replace opted-out regions with a single-line placeholder so no
+        // formatter ever sees them. Offsets shift as each phase rewrites content,
+        // so masking up front is the only way ranges survive the whole pipeline.
+        $masked = [];
+        $maskedRegions = [];
+        foreach ($files as $path => $content) {
+            [$masked[$path], $maskedRegions[$path]] = self::maskDisabledRegions($content);
+        }
 
         // Phase 1: Parse all files
         $parsed = [];
-        foreach ($active as $path => $content) {
+        foreach ($masked as $path => $content) {
             $parsed[$path] = Parser::parseSfc($content);
         }
 
@@ -59,7 +71,7 @@ class BatchFormatter
         // Collect @php blocks for Pint formatting
         $phpBlocks = [];
         if ($this->enablePint) {
-            foreach ($active as $path => $content) {
+            foreach ($masked as $path => $content) {
                 $bladeContent = $parsed[$path]['isSfc'] ? $parsed[$path]['blade'] : $content;
                 $blocks = $this->extractPhpBlocks($bladeContent);
                 if ($blocks !== []) {
@@ -74,7 +86,7 @@ class BatchFormatter
 
         if ($this->enableTailwindSort) {
             foreach ($parsed as $path => $parts) {
-                $bladeContent = $parts['isSfc'] ? $parts['blade'] : $files[$path];
+                $bladeContent = $parts['isSfc'] ? $parts['blade'] : $masked[$path];
                 $classStrings = $tailwindFormatter->extractClassStrings($bladeContent);
                 $fileClassStrings[$path] = $classStrings;
                 foreach ($classStrings as $cs) {
@@ -96,19 +108,9 @@ class BatchFormatter
         $results = [];
 
         foreach ($files as $path => $originalContent) {
-            if (! array_key_exists($path, $active)) {
-                $results[$path] = $originalContent;
-
-                if ($onFileComplete !== null) {
-                    $onFileComplete($path, $originalContent);
-                }
-
-                continue;
-            }
-
             $parts = $parsed[$path];
             $php = $formattedPhp[$path] ?? $parts['php'];
-            $blade = $parts['isSfc'] ? $parts['blade'] : $originalContent;
+            $blade = $parts['isSfc'] ? $parts['blade'] : $masked[$path];
 
             // Reinsert Pint-formatted @php block contents before indentation
             if (isset($formattedPhpBlocks[$path])) {
@@ -139,7 +141,19 @@ class BatchFormatter
                 : $blade;
 
             // Collapse multiple consecutive blank lines
-            $results[$path] = (string) preg_replace('/\n{3,}/', "\n\n", $result);
+            $result = (string) preg_replace('/\n{3,}/', "\n\n", $result);
+
+            // Put the opted-out regions back exactly as they were written. If any
+            // placeholder failed to survive the pipeline, restoring would silently
+            // drop the user's markup, so the file is left untouched instead.
+            $restored = self::restoreDisabledRegions($result, $maskedRegions[$path]);
+
+            if ($restored === null) {
+                $this->warnings[$path][] = 'Formatting skipped: could not restore blade-formatter-disable regions.';
+                $results[$path] = $originalContent;
+            } else {
+                $results[$path] = $restored;
+            }
 
             if ($onFileComplete !== null) {
                 $onFileComplete($path, $results[$path]);
@@ -293,17 +307,133 @@ class BatchFormatter
     }
 
     /**
-     * Whether a template opts out of formatting entirely.
+     * Find the byte ranges opted out of formatting.
      *
-     * A `{{-- blade-formatter-disable --}}` comment anywhere in the file skips
-     * all three formatters and returns the content byte-for-byte. Intended for
-     * templates whose exact markup is the point — documentation pages showing
-     * code samples, fixtures asserted against as strings — where even the
-     * always-safe rewrites (Tailwind class order, indentation) are unwanted.
+     * A `{{-- blade-formatter-disable --}}` comment starts a region and
+     * `{{-- blade-formatter-enable --}}` ends it; an unclosed region runs to the
+     * end of the file, so a single comment at the top opts out the whole thing.
+     * Both markers are part of the region, so they survive in the output.
+     *
+     * Intended for markup that is itself the content — documentation pages
+     * showing code samples, fixtures asserted against as strings — where even
+     * the always-safe rewrites (Tailwind class order, indentation) are unwanted.
+     *
+     * @return list<array{start: int, end: int}>
      */
-    public static function isFormattingDisabled(string $content): bool
+    public static function disabledRegions(string $content): array
     {
-        return (bool) preg_match('/\{\{--\s*blade-formatter-disable\s*--\}\}/', $content);
+        if (! preg_match_all(self::DISABLE_MARKER, $content, $starts, PREG_OFFSET_CAPTURE)) {
+            return [];
+        }
+
+        preg_match_all(self::ENABLE_MARKER, $content, $ends, PREG_OFFSET_CAPTURE);
+
+        $regions = [];
+        $cursor = 0;
+
+        foreach ($starts[0] as [$startText, $startOffset]) {
+            // A second disable inside an open region is just text.
+            if ($startOffset < $cursor) {
+                continue;
+            }
+
+            $end = strlen($content);
+
+            foreach ($ends[0] as [$endText, $endOffset]) {
+                if ($endOffset > $startOffset) {
+                    $end = $endOffset + strlen($endText);
+                    break;
+                }
+            }
+
+            $regions[] = ['start' => $startOffset, 'end' => $end];
+            $cursor = $end;
+        }
+
+        return $regions;
+    }
+
+    /**
+     * Replace each opted-out region with a single-line placeholder.
+     *
+     * @return array{string, array<int, string>} Masked content, and the original
+     *                                           text of each region by index
+     */
+    public static function maskDisabledRegions(string $content): array
+    {
+        $regions = self::disabledRegions($content);
+
+        if ($regions === []) {
+            return [$content, []];
+        }
+
+        $originals = [];
+
+        // Replace back to front so earlier offsets stay valid.
+        for ($i = count($regions) - 1; $i >= 0; $i--) {
+            ['start' => $start, 'end' => $end] = $regions[$i];
+
+            $originals[$i] = substr($content, $start, $end - $start);
+            $content = substr($content, 0, $start).self::placeholder($i).substr($content, $end);
+        }
+
+        ksort($originals);
+
+        return [$content, $originals];
+    }
+
+    /**
+     * Substitute opted-out regions back into formatted content.
+     *
+     * @param  array<int, string>  $originals
+     * @return string|null Null if any region could not be restored
+     */
+    public static function restoreDisabledRegions(string $content, array $originals): ?string
+    {
+        if ($originals === []) {
+            return $content;
+        }
+
+        $restored = [];
+
+        // A placeholder on its own line drops whatever indentation the formatter
+        // gave it, so the region returns at the column the author wrote it in.
+        $content = (string) preg_replace_callback(
+            '/^[ \t]*'.self::PLACEHOLDER_PATTERN.'[ \t]*$/m',
+            function (array $m) use ($originals, &$restored): string {
+                $index = (int) $m[1];
+                $restored[$index] = true;
+
+                return $originals[$index] ?? $m[0];
+            },
+            $content,
+        );
+
+        // An inline placeholder keeps its surroundings.
+        $content = (string) preg_replace_callback(
+            '/'.self::PLACEHOLDER_PATTERN.'/',
+            function (array $m) use ($originals, &$restored): string {
+                $index = (int) $m[1];
+                $restored[$index] = true;
+
+                return $originals[$index] ?? $m[0];
+            },
+            $content,
+        );
+
+        // Every region must come back, or content would be silently lost.
+        foreach (array_keys($originals) as $index) {
+            if (! isset($restored[$index])) {
+                return null;
+            }
+        }
+
+        return $content;
+    }
+
+    private static function placeholder(int $index): string
+    {
+        return '{{-- blade-formatter-region:'.$index.' --}}';
     }
 
     /**

@@ -9,28 +9,67 @@ use PHPUnit\Framework\TestCase;
 class BatchFormatterTest extends TestCase
 {
     #[Test]
-    public function it_skips_files_with_a_disable_comment(): void
+    public function an_unclosed_disable_comment_opts_out_the_rest_of_the_file(): void
     {
-        $formatter = new BatchFormatter(
-            enablePint: false,
-            enableTailwindSort: false,
-        );
-
         $content = "{{-- blade-formatter-disable --}}\n<div>\n<p>Untouched</p>\n</div>";
 
-        $result = $formatter->formatBatch(['/tmp/a.blade.php' => $content]);
+        $result = $this->format($content);
 
-        $this->assertSame($content, $result['/tmp/a.blade.php']);
+        $this->assertSame($content, $result);
     }
 
     #[Test]
-    public function it_still_reports_disabled_files_through_the_callback(): void
+    public function it_formats_around_a_disabled_region(): void
     {
-        $formatter = new BatchFormatter(
-            enablePint: false,
-            enableTailwindSort: false,
-        );
+        $content = "<div>\n<p>Before</p>\n{{-- blade-formatter-disable --}}\n<pre>\n  keep    this\n</pre>\n{{-- blade-formatter-enable --}}\n<p>After</p>\n</div>";
 
+        $result = $this->format($content);
+
+        // The region survives byte-for-byte, including its own indentation.
+        $this->assertStringContainsString("{{-- blade-formatter-disable --}}\n<pre>\n  keep    this\n</pre>\n{{-- blade-formatter-enable --}}", $result);
+
+        // Everything outside it is still formatted.
+        $this->assertStringContainsString('    <p>Before</p>', $result);
+        $this->assertStringContainsString('    <p>After</p>', $result);
+    }
+
+    #[Test]
+    public function it_handles_multiple_disabled_regions_in_one_file(): void
+    {
+        $content = "<div>\n{{-- blade-formatter-disable --}}\n<p>One</p>\n{{-- blade-formatter-enable --}}\n<p>Formatted</p>\n{{-- blade-formatter-disable --}}\n<p>Two</p>\n{{-- blade-formatter-enable --}}\n</div>";
+
+        $result = $this->format($content);
+
+        $this->assertStringContainsString("{{-- blade-formatter-disable --}}\n<p>One</p>\n", $result);
+        $this->assertStringContainsString("{{-- blade-formatter-disable --}}\n<p>Two</p>\n", $result);
+        $this->assertStringContainsString('    <p>Formatted</p>', $result);
+    }
+
+    #[Test]
+    public function a_disable_comment_inside_a_disabled_region_is_just_text(): void
+    {
+        $content = "{{-- blade-formatter-disable --}}\n<p>{{-- blade-formatter-disable --}}</p>\n{{-- blade-formatter-enable --}}\n<div>\n<p>After</p>\n</div>";
+
+        $result = $this->format($content);
+
+        $this->assertStringContainsString("<p>{{-- blade-formatter-disable --}}</p>", $result);
+        $this->assertStringContainsString('    <p>After</p>', $result);
+    }
+
+    #[Test]
+    public function an_enable_comment_without_a_disable_is_ignored(): void
+    {
+        $content = "<div>\n{{-- blade-formatter-enable --}}\n<p>Hello</p>\n</div>";
+
+        $result = $this->format($content);
+
+        $this->assertStringContainsString('    <p>Hello</p>', $result);
+        $this->assertStringContainsString('    {{-- blade-formatter-enable --}}', $result);
+    }
+
+    #[Test]
+    public function a_disabled_region_does_not_stop_later_files_being_formatted(): void
+    {
         $disabled = "{{-- blade-formatter-disable --}}\n<div>\n<p>A</p>\n</div>";
 
         $files = [
@@ -39,9 +78,10 @@ class BatchFormatterTest extends TestCase
         ];
 
         $seen = [];
-        $results = $formatter->formatBatch($files, function (string $path, string $formatted) use (&$seen) {
-            $seen[$path] = $formatted;
-        });
+        $results = (new BatchFormatter(enablePint: false, enableTailwindSort: false))
+            ->formatBatch($files, function (string $path, string $formatted) use (&$seen) {
+                $seen[$path] = $formatted;
+            });
 
         // Both files are reported, in the original order, so progress output
         // and the "already formatted" count stay accurate.
@@ -51,27 +91,56 @@ class BatchFormatterTest extends TestCase
     }
 
     #[Test]
-    public function disable_comment_is_recognised_anywhere_in_the_file(): void
+    public function disable_markers_tolerate_whitespace_variations(): void
     {
-        $formatter = new BatchFormatter(
-            enablePint: false,
-            enableTailwindSort: false,
-        );
-
-        $content = "<div>\n<p>Sample</p>\n{{-- blade-formatter-disable --}}\n</div>";
-
-        $result = $formatter->formatBatch(['/tmp/a.blade.php' => $content]);
-
-        $this->assertSame($content, $result['/tmp/a.blade.php']);
+        $this->assertCount(1, BatchFormatter::disabledRegions('{{--blade-formatter-disable--}}'));
+        $this->assertCount(1, BatchFormatter::disabledRegions('{{--    blade-formatter-disable    --}}'));
+        $this->assertSame([], BatchFormatter::disabledRegions('{{-- blade-formatter-disabled --}}'));
+        $this->assertSame([], BatchFormatter::disabledRegions('<div>no comment here</div>'));
     }
 
     #[Test]
-    public function disable_comment_tolerates_whitespace_variations(): void
+    public function a_region_spans_from_its_disable_marker_through_its_enable_marker(): void
     {
-        $this->assertTrue(BatchFormatter::isFormattingDisabled('{{--blade-formatter-disable--}}'));
-        $this->assertTrue(BatchFormatter::isFormattingDisabled('{{--    blade-formatter-disable    --}}'));
-        $this->assertFalse(BatchFormatter::isFormattingDisabled('{{-- blade-formatter-disabled --}}'));
-        $this->assertFalse(BatchFormatter::isFormattingDisabled('<div>no comment here</div>'));
+        $content = "a{{-- blade-formatter-disable --}}b{{-- blade-formatter-enable --}}c";
+
+        $regions = BatchFormatter::disabledRegions($content);
+
+        $this->assertCount(1, $regions);
+        $this->assertSame(
+            '{{-- blade-formatter-disable --}}b{{-- blade-formatter-enable --}}',
+            substr($content, $regions[0]['start'], $regions[0]['end'] - $regions[0]['start']),
+        );
+    }
+
+    #[Test]
+    public function masking_and_restoring_round_trips_unchanged_content(): void
+    {
+        $content = "<div>\n{{-- blade-formatter-disable --}}\n<p>Kept</p>\n{{-- blade-formatter-enable --}}\n</div>";
+
+        [$masked, $originals] = BatchFormatter::maskDisabledRegions($content);
+
+        $this->assertStringNotContainsString('<p>Kept</p>', $masked);
+        $this->assertSame($content, BatchFormatter::restoreDisabledRegions($masked, $originals));
+    }
+
+    #[Test]
+    public function restoring_fails_loudly_when_a_placeholder_was_lost(): void
+    {
+        [, $originals] = BatchFormatter::maskDisabledRegions(
+            "{{-- blade-formatter-disable --}}\n<p>Kept</p>\n{{-- blade-formatter-enable --}}",
+        );
+
+        // A formatter that ate the placeholder must not cause silent data loss.
+        $this->assertNull(BatchFormatter::restoreDisabledRegions('<div>placeholder gone</div>', $originals));
+    }
+
+    private function format(string $content): string
+    {
+        $results = (new BatchFormatter(enablePint: false, enableTailwindSort: false))
+            ->formatBatch(['/tmp/a.blade.php' => $content]);
+
+        return $results['/tmp/a.blade.php'];
     }
 
     #[Test]
