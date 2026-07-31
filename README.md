@@ -12,6 +12,19 @@ Blade Formatter runs three formatters in sequence:
 
 Each formatter can be enabled or disabled independently. Markdown mail templates (`<x-mail::message>`) are automatically skipped to preserve whitespace-sensitive formatting.
 
+## Why Not Prettier?
+
+Blade Formatter only changes leading whitespace. It re-indents, but doesn't reflow. Line breaks are left as written.
+
+Other tools, including `pint --blade`, run Blade through Prettier, which also joins short lines, wraps at a print width, and moves attributes onto their own lines. That works well for plenty of projects. A few reasons Blade Formatter doesn't:
+
+- HTML whitespace can be meaningful in ways JSX whitespace usually isn't, so rewrapping sometimes changes what renders.
+- Blade mixes PHP and HTML, and how a template reads best tends to depend on what it's doing more than on a fixed width.
+- Line length and attributes-per-line are things developers reasonably disagree about.
+- Blade components are often one deeply nested tree, since there's no easy way to define and reuse smaller components within a single file. A tall component is fine, since it folds in the editor, but wrapping compounds at every level of nesting.
+
+Mostly this is preference. If you'd rather have full reflow, `pint --blade` does it well.
+
 ## Skipped Files
 
 Some Blade files are never formatted, because reformatting them would change what they do rather than just how they look:
