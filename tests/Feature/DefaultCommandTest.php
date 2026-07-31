@@ -195,6 +195,76 @@ class DefaultCommandTest extends TestCase
         $this->assertSame("<div>\n    <p>Hello</p>\n</div>", file_get_contents($dir.'/core.blade.php'));
     }
 
+    #[Test]
+    public function dirty_only_formats_files_with_uncommitted_changes(): void
+    {
+        $this->initRepository();
+
+        $unformatted = "<div>\n<p>Hello</p>\n</div>";
+        file_put_contents($this->tempDir.'/committed.blade.php', $unformatted);
+        $this->git('add -A');
+        $this->git('-c user.email=t@t -c user.name=T commit -m init');
+
+        // One tracked file modified, one brand new and untracked.
+        file_put_contents($this->tempDir.'/committed.blade.php', $unformatted."\n<span>Changed</span>");
+        file_put_contents($this->tempDir.'/untracked.blade.php', $unformatted);
+
+        // A committed, unmodified file that must be left alone.
+        file_put_contents($this->tempDir.'/clean.blade.php', $unformatted);
+        $this->git('add clean.blade.php');
+        $this->git('-c user.email=t@t -c user.name=T commit -m clean');
+
+        $cwd = getcwd();
+        chdir($this->tempDir);
+
+        try {
+            $this->artisan('default', ['--dirty' => true, '--config' => $this->configPath()])
+                ->assertSuccessful();
+        } finally {
+            chdir($cwd);
+        }
+
+        $this->assertStringContainsString('    <p>Hello</p>', (string) file_get_contents($this->tempDir.'/committed.blade.php'));
+        $this->assertStringContainsString('    <p>Hello</p>', (string) file_get_contents($this->tempDir.'/untracked.blade.php'));
+        $this->assertSame($unformatted, file_get_contents($this->tempDir.'/clean.blade.php'));
+    }
+
+    #[Test]
+    public function dirty_reports_no_files_when_the_tree_is_clean(): void
+    {
+        $this->initRepository();
+        file_put_contents($this->tempDir.'/test.blade.php', "<div>\n<p>Hello</p>\n</div>");
+        $this->git('add -A');
+        $this->git('-c user.email=t@t -c user.name=T commit -m init');
+
+        $cwd = getcwd();
+        chdir($this->tempDir);
+
+        try {
+            $this->artisan('default', ['--dirty' => true, '--config' => $this->configPath()])
+                ->assertSuccessful();
+        } finally {
+            chdir($cwd);
+        }
+
+        $this->assertSame("<div>\n<p>Hello</p>\n</div>", file_get_contents($this->tempDir.'/test.blade.php'));
+    }
+
+    private function initRepository(): void
+    {
+        $this->configPath();
+        $this->git('init -q');
+    }
+
+    private function git(string $args): void
+    {
+        exec('git -C '.escapeshellarg($this->tempDir).' '.$args.' 2>&1', $output, $exitCode);
+
+        if ($exitCode !== 0) {
+            $this->fail('git '.$args.' failed: '.implode("\n", $output));
+        }
+    }
+
     /**
      * Create a minimal config file that disables Pint and Tailwind (no external deps needed).
      */

@@ -38,6 +38,7 @@ class DefaultCommand extends Command
                             {--test : Check formatting without making changes}
                             {--bail : Stop on first file that would change (implies --test)}
                             {--diff= : Only format files changed since a branch (defaults to main)}
+                            {--dirty : Only format files with uncommitted changes}
                             {--config= : Path to blade-formatter.json config file}';
 
     protected $description = 'Format Blade templates and Livewire SFCs';
@@ -240,6 +241,10 @@ class DefaultCommand extends Command
      */
     private function discoverFiles(array $config): array
     {
+        if ((bool) $this->option('dirty')) {
+            return $this->getDirtyFiles();
+        }
+
         /** @var string|null $diff */
         $diff = $this->option('diff');
         if ($diff !== null) {
@@ -355,6 +360,79 @@ class DefaultCommand extends Command
         }
 
         return $files;
+    }
+
+    /**
+     * Get Blade files with uncommitted changes, including untracked ones.
+     *
+     * @return list<string>
+     */
+    private function getDirtyFiles(): array
+    {
+        exec('git status --porcelain --untracked-files=all 2>/dev/null', $output, $exitCode);
+
+        if ($exitCode !== 0) {
+            $this->components->error('Failed to get uncommitted files from git.');
+
+            return [];
+        }
+
+        $root = $this->repositoryRoot();
+
+        if ($root === null) {
+            $this->components->error('Failed to locate the git repository root.');
+
+            return [];
+        }
+
+        $files = [];
+        foreach ($output as $line) {
+            // Porcelain v1 format: two status characters, a space, then the path.
+            $path = substr($line, 3);
+
+            // Renames and copies are reported as "old -> new"; only the new path exists.
+            $arrow = strpos($path, ' -> ');
+            if ($arrow !== false) {
+                $path = substr($path, $arrow + 4);
+            }
+
+            // Paths containing unusual characters are quoted and C-escaped.
+            if (str_starts_with($path, '"')) {
+                $unquoted = json_decode($path);
+                if (! is_string($unquoted)) {
+                    continue;
+                }
+                $path = $unquoted;
+            }
+
+            if (! str_ends_with($path, '.blade.php')) {
+                continue;
+            }
+
+            // Deleted and renamed-away paths no longer exist on disk.
+            $absolute = $root.'/'.$path;
+            if (is_file($absolute)) {
+                $files[] = $absolute;
+            }
+        }
+
+        sort($files);
+
+        return array_values(array_unique($files));
+    }
+
+    /**
+     * The absolute path to the root of the current git repository.
+     */
+    private function repositoryRoot(): ?string
+    {
+        exec('git rev-parse --show-toplevel 2>/dev/null', $output, $exitCode);
+
+        if ($exitCode !== 0 || $output === []) {
+            return null;
+        }
+
+        return rtrim(trim((string) end($output)), '/') ?: null;
     }
 
     private function relativePath(string $path): string

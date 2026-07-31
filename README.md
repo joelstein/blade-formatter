@@ -58,6 +58,9 @@ vendor/bin/blade-format --bail
 
 # Only format files changed since a branch
 vendor/bin/blade-format --diff=main
+
+# Only format files with uncommitted changes (including untracked)
+vendor/bin/blade-format --dirty
 ```
 
 ## Configuration
