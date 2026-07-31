@@ -18,6 +18,21 @@ class DefaultCommand extends Command
         'vendor/notifications',
     ];
 
+    /**
+     * Blade files that are never formatted, because reformatting them would
+     * change what they do rather than just how they look. Envoy tasks are
+     * shell scripts where indentation is passed through to the shell, and
+     * Boost guidelines are whitespace-sensitive Markdown.
+     */
+    private const IGNORED_BASENAMES = [
+        'Envoy.blade.php',
+        'envoy.blade.php',
+    ];
+
+    private const IGNORED_PATH_FRAGMENTS = [
+        'resources/boost/guidelines/',
+    ];
+
     protected $signature = 'default
                             {path?* : Files or directories to format}
                             {--test : Check formatting without making changes}
@@ -191,6 +206,39 @@ class DefaultCommand extends Command
      * @return list<string>
      */
     private function resolveFiles(array $config): array
+    {
+        return array_values(array_filter(
+            $this->discoverFiles($config),
+            fn (string $path): bool => ! $this->isIgnored($path),
+        ));
+    }
+
+    /**
+     * Whether a file is excluded from formatting by convention, regardless of
+     * how it was selected — including when named explicitly on the command line.
+     */
+    private function isIgnored(string $path): bool
+    {
+        if (in_array(basename($path), self::IGNORED_BASENAMES, true)) {
+            return true;
+        }
+
+        $normalized = str_replace('\\', '/', $path);
+
+        foreach (self::IGNORED_PATH_FRAGMENTS as $fragment) {
+            if (str_contains($normalized, $fragment)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     * @return list<string>
+     */
+    private function discoverFiles(array $config): array
     {
         /** @var string|null $diff */
         $diff = $this->option('diff');

@@ -150,6 +150,51 @@ class DefaultCommandTest extends TestCase
         $this->assertSame("<div>\n    <p>Hello</p>\n</div>", file_get_contents($file));
     }
 
+    #[Test]
+    public function it_skips_envoy_files(): void
+    {
+        // Indentation inside @task is passed to the shell, so it must survive untouched.
+        $unformatted = "@servers(['web' => 'user@host'])\n\n@task('deploy')\n@if (\$production)\nphp artisan down\n@endif\ncd /app\n@endtask";
+
+        foreach (['Envoy.blade.php', 'envoy.blade.php'] as $name) {
+            file_put_contents($this->tempDir.'/'.$name, $unformatted);
+
+            $this->artisan('default', ['path' => [$this->tempDir.'/'.$name], '--config' => $this->configPath()])
+                ->assertSuccessful();
+
+            $this->assertSame($unformatted, file_get_contents($this->tempDir.'/'.$name));
+            unlink($this->tempDir.'/'.$name);
+        }
+    }
+
+    #[Test]
+    public function it_skips_boost_guidelines(): void
+    {
+        $dir = $this->tempDir.'/resources/boost/guidelines';
+        mkdir($dir, 0755, true);
+        $unformatted = "<div>\n<p>Indentation is meaningful in Markdown.</p>\n</div>";
+        file_put_contents($dir.'/core.blade.php', $unformatted);
+
+        $this->artisan('default', ['path' => [$dir], '--config' => $this->configPath()])
+            ->assertSuccessful();
+
+        $this->assertSame($unformatted, file_get_contents($dir.'/core.blade.php'));
+    }
+
+    #[Test]
+    public function it_still_formats_files_outside_ignored_conventions(): void
+    {
+        // A guidelines directory that is not under resources/boost/ is ordinary.
+        $dir = $this->tempDir.'/docs/guidelines';
+        mkdir($dir, 0755, true);
+        file_put_contents($dir.'/core.blade.php', "<div>\n<p>Hello</p>\n</div>");
+
+        $this->artisan('default', ['path' => [$dir], '--config' => $this->configPath()])
+            ->assertSuccessful();
+
+        $this->assertSame("<div>\n    <p>Hello</p>\n</div>", file_get_contents($dir.'/core.blade.php'));
+    }
+
     /**
      * Create a minimal config file that disables Pint and Tailwind (no external deps needed).
      */

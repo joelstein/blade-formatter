@@ -12,6 +12,18 @@ Blade Formatter runs three formatters in sequence:
 
 Each formatter can be enabled or disabled independently. Markdown mail templates (`<x-mail::message>`) are automatically skipped to preserve whitespace-sensitive formatting.
 
+## Skipped Files
+
+Some Blade files are never formatted, because reformatting them would change what they do rather than just how they look:
+
+| File | Why |
+|------|-----|
+| `Envoy.blade.php`, `envoy.blade.php` | Indentation inside `@task` is passed through to the shell |
+| `resources/boost/guidelines/**` | Whitespace-sensitive Markdown |
+| Templates containing `<x-mail::message>` | Whitespace-sensitive Markdown mail |
+
+These are skipped even when named explicitly on the command line.
+
 ## Requirements
 
 - PHP 8.2+
