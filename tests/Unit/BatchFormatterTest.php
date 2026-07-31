@@ -9,6 +9,72 @@ use PHPUnit\Framework\TestCase;
 class BatchFormatterTest extends TestCase
 {
     #[Test]
+    public function it_skips_files_with_a_disable_comment(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: false,
+            enableTailwindSort: false,
+        );
+
+        $content = "{{-- blade-formatter-disable --}}\n<div>\n<p>Untouched</p>\n</div>";
+
+        $result = $formatter->formatBatch(['/tmp/a.blade.php' => $content]);
+
+        $this->assertSame($content, $result['/tmp/a.blade.php']);
+    }
+
+    #[Test]
+    public function it_still_reports_disabled_files_through_the_callback(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: false,
+            enableTailwindSort: false,
+        );
+
+        $disabled = "{{-- blade-formatter-disable --}}\n<div>\n<p>A</p>\n</div>";
+
+        $files = [
+            '/tmp/a.blade.php' => $disabled,
+            '/tmp/b.blade.php' => "<div>\n<p>B</p>\n</div>",
+        ];
+
+        $seen = [];
+        $results = $formatter->formatBatch($files, function (string $path, string $formatted) use (&$seen) {
+            $seen[$path] = $formatted;
+        });
+
+        // Both files are reported, in the original order, so progress output
+        // and the "already formatted" count stay accurate.
+        $this->assertSame(['/tmp/a.blade.php', '/tmp/b.blade.php'], array_keys($seen));
+        $this->assertSame($disabled, $seen['/tmp/a.blade.php']);
+        $this->assertSame("<div>\n    <p>B</p>\n</div>", $results['/tmp/b.blade.php']);
+    }
+
+    #[Test]
+    public function disable_comment_is_recognised_anywhere_in_the_file(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: false,
+            enableTailwindSort: false,
+        );
+
+        $content = "<div>\n<p>Sample</p>\n{{-- blade-formatter-disable --}}\n</div>";
+
+        $result = $formatter->formatBatch(['/tmp/a.blade.php' => $content]);
+
+        $this->assertSame($content, $result['/tmp/a.blade.php']);
+    }
+
+    #[Test]
+    public function disable_comment_tolerates_whitespace_variations(): void
+    {
+        $this->assertTrue(BatchFormatter::isFormattingDisabled('{{--blade-formatter-disable--}}'));
+        $this->assertTrue(BatchFormatter::isFormattingDisabled('{{--    blade-formatter-disable    --}}'));
+        $this->assertFalse(BatchFormatter::isFormattingDisabled('{{-- blade-formatter-disabled --}}'));
+        $this->assertFalse(BatchFormatter::isFormattingDisabled('<div>no comment here</div>'));
+    }
+
+    #[Test]
     public function it_fires_callback_for_each_file(): void
     {
         $formatter = new BatchFormatter(

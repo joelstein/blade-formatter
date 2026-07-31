@@ -24,6 +24,16 @@ Some Blade files are never formatted, because reformatting them would change wha
 
 These are skipped even when named explicitly on the command line.
 
+### Opting a File Out
+
+Add a `blade-formatter-disable` comment anywhere in a template to skip all three formatters and leave the file byte-for-byte unchanged:
+
+```blade
+{{-- blade-formatter-disable --}}
+```
+
+Class attribute order never affects CSS, so Tailwind sorting is normally safe everywhere — including inside `@verbatim`, where Vue and Handlebars templates genuinely want it. The exception is markup that is itself the content: documentation pages showing code samples, or fixtures asserted against as strings. Sorting rewrites the example you are demonstrating, even when it is HTML-escaped inside `<pre>`.
+
 ## Requirements
 
 - PHP 8.2+

@@ -39,9 +39,12 @@ class BatchFormatter
             return [];
         }
 
+        // Files opting out are held back from every phase and returned verbatim.
+        $active = array_filter($files, fn (string $content): bool => ! self::isFormattingDisabled($content));
+
         // Phase 1: Parse all files
         $parsed = [];
-        foreach ($files as $path => $content) {
+        foreach ($active as $path => $content) {
             $parsed[$path] = Parser::parseSfc($content);
         }
 
@@ -56,7 +59,7 @@ class BatchFormatter
         // Collect @php blocks for Pint formatting
         $phpBlocks = [];
         if ($this->enablePint) {
-            foreach ($files as $path => $content) {
+            foreach ($active as $path => $content) {
                 $bladeContent = $parsed[$path]['isSfc'] ? $parsed[$path]['blade'] : $content;
                 $blocks = $this->extractPhpBlocks($bladeContent);
                 if ($blocks !== []) {
@@ -93,6 +96,16 @@ class BatchFormatter
         $results = [];
 
         foreach ($files as $path => $originalContent) {
+            if (! array_key_exists($path, $active)) {
+                $results[$path] = $originalContent;
+
+                if ($onFileComplete !== null) {
+                    $onFileComplete($path, $originalContent);
+                }
+
+                continue;
+            }
+
             $parts = $parsed[$path];
             $php = $formattedPhp[$path] ?? $parts['php'];
             $blade = $parts['isSfc'] ? $parts['blade'] : $originalContent;
@@ -277,6 +290,20 @@ class BatchFormatter
         }
 
         return [$formattedPhp, $sortMap];
+    }
+
+    /**
+     * Whether a template opts out of formatting entirely.
+     *
+     * A `{{-- blade-formatter-disable --}}` comment anywhere in the file skips
+     * all three formatters and returns the content byte-for-byte. Intended for
+     * templates whose exact markup is the point — documentation pages showing
+     * code samples, fixtures asserted against as strings — where even the
+     * always-safe rewrites (Tailwind class order, indentation) are unwanted.
+     */
+    public static function isFormattingDisabled(string $content): bool
+    {
+        return (bool) preg_match('/\{\{--\s*blade-formatter-disable\s*--\}\}/', $content);
     }
 
     /**
