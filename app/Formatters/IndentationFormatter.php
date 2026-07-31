@@ -113,11 +113,14 @@ class IndentationFormatter
                 if (preg_match($preserveBlock['close'], $trimmed)) {
                     $closingAdjust = $this->countClosingAdjustments($trimmed);
                     $level = max(0, $level + $closingAdjust);
-                    $result[] = str_repeat($indent, $level).$trimmed;
                     $preserveBlock = null;
-                } else {
-                    $result[] = $rawLine;
                 }
+
+                // Leading whitespace on every line of the block — including the
+                // closing line — is literal output: rendered inside <pre>, emitted
+                // as-is by @verbatim. Re-indenting it would change what the browser
+                // shows, so the raw line is kept.
+                $result[] = $rawLine;
 
                 continue;
             }

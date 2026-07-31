@@ -539,7 +539,7 @@ BLADE;
     public function it_preserves_content_inside_verbatim(): void
     {
         $input = "\n<div>\n@verbatim\n    <div>\n        {{ \$unprocessed }}\n    </div>\n@endverbatim\n</div>";
-        $expected = "\n<div>\n    @verbatim\n    <div>\n        {{ \$unprocessed }}\n    </div>\n    @endverbatim\n</div>";
+        $expected = "\n<div>\n    @verbatim\n    <div>\n        {{ \$unprocessed }}\n    </div>\n@endverbatim\n</div>";
 
         $this->assertSame($expected, $this->indent($input));
     }
@@ -548,7 +548,50 @@ BLADE;
     public function it_preserves_content_inside_pre_tags(): void
     {
         $input = "\n<div>\n<pre>\n  line 1\n    line 2\n      line 3\n</pre>\n</div>";
-        $expected = "\n<div>\n    <pre>\n  line 1\n    line 2\n      line 3\n    </pre>\n</div>";
+        $expected = "\n<div>\n    <pre>\n  line 1\n    line 2\n      line 3\n</pre>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_does_not_inject_whitespace_before_a_closing_pre_tag(): void
+    {
+        // Whitespace before </pre> is rendered literally, so an unindented
+        // closing tag must stay unindented no matter how deep the nesting.
+        $input = "\n<div>\n<section>\n<pre>\ncode\n</pre>\n</section>\n</div>";
+        $expected = "\n<div>\n    <section>\n        <pre>\ncode\n</pre>\n    </section>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_keeps_existing_indentation_of_a_closing_pre_tag(): void
+    {
+        // If the author already indented </pre>, that whitespace is part of the
+        // rendered content — leave it exactly as written rather than "fixing" it.
+        $input = "\n<div>\n<pre>\ncode\n        </pre>\n</div>";
+        $expected = "\n<div>\n    <pre>\ncode\n        </pre>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_does_not_inject_whitespace_before_endverbatim(): void
+    {
+        // @verbatim emits its contents raw, so indenting @endverbatim would add
+        // leading spaces to the last line of output.
+        $input = "\n<div>\n<section>\n@verbatim\n{{ raw }}\n@endverbatim\n</section>\n</div>";
+        $expected = "\n<div>\n    <section>\n        @verbatim\n{{ raw }}\n@endverbatim\n    </section>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_continues_indenting_siblings_after_a_preserved_block(): void
+    {
+        // Leaving the closing line untouched must not disturb level tracking.
+        $input = "\n<div>\n<pre>\ncode\n</pre>\n<p>After</p>\n@verbatim\n{{ raw }}\n@endverbatim\n<p>End</p>\n</div>";
+        $expected = "\n<div>\n    <pre>\ncode\n</pre>\n    <p>After</p>\n    @verbatim\n{{ raw }}\n@endverbatim\n    <p>End</p>\n</div>";
 
         $this->assertSame($expected, $this->indent($input));
     }
