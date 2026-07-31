@@ -37,6 +37,7 @@ class DefaultCommand extends Command
                             {path?* : Files or directories to format}
                             {--test : Check formatting without making changes}
                             {--bail : Stop on first file that would change (implies --test)}
+                            {--repair : Fix files but exit with a failure status if anything changed}
                             {--diff= : Only format files changed since a branch (defaults to main)}
                             {--dirty : Only format files with uncommitted changes}
                             {--config= : Path to blade-formatter.json config file}';
@@ -80,6 +81,7 @@ class DefaultCommand extends Command
         $unchanged = 0;
         $isTest = (bool) $this->option('test') || (bool) $this->option('bail');
         $isBail = (bool) $this->option('bail');
+        $isRepair = (bool) $this->option('repair');
         $warnings = [];
         $bailed = false;
 
@@ -160,7 +162,9 @@ class DefaultCommand extends Command
         $verb = $isTest ? 'would be formatted' : 'formatted';
         info("{$changedCount} file(s) {$verb}, {$unchanged} already formatted. ({$elapsed}ms)");
 
-        return $isTest ? self::FAILURE : self::SUCCESS;
+        // --repair writes the fixes but still fails the build, so CI surfaces
+        // that the committed files were not formatted.
+        return $isTest || $isRepair ? self::FAILURE : self::SUCCESS;
     }
 
     /**

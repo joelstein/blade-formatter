@@ -56,6 +56,9 @@ vendor/bin/blade-format --test
 # Stop on first file that would change (for CI)
 vendor/bin/blade-format --bail
 
+# Fix files, but still exit non-zero if anything changed (for CI)
+vendor/bin/blade-format --repair
+
 # Only format files changed since a branch
 vendor/bin/blade-format --diff=main
 

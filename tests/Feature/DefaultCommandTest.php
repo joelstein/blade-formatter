@@ -250,6 +250,38 @@ class DefaultCommandTest extends TestCase
         $this->assertSame("<div>\n<p>Hello</p>\n</div>", file_get_contents($this->tempDir.'/test.blade.php'));
     }
 
+    #[Test]
+    public function repair_fixes_files_but_fails(): void
+    {
+        file_put_contents($this->tempDir.'/test.blade.php', "<div>\n<p>Hello</p>\n</div>");
+
+        $this->artisan('default', ['path' => [$this->tempDir], '--repair' => true, '--config' => $this->configPath()])
+            ->assertFailed();
+
+        $this->assertSame("<div>\n    <p>Hello</p>\n</div>", file_get_contents($this->tempDir.'/test.blade.php'));
+    }
+
+    #[Test]
+    public function repair_succeeds_when_nothing_changed(): void
+    {
+        file_put_contents($this->tempDir.'/test.blade.php', "<div>\n    <p>Hello</p>\n</div>");
+
+        $this->artisan('default', ['path' => [$this->tempDir], '--repair' => true, '--config' => $this->configPath()])
+            ->assertSuccessful();
+    }
+
+    #[Test]
+    public function repair_combined_with_test_does_not_write(): void
+    {
+        $unformatted = "<div>\n<p>Hello</p>\n</div>";
+        file_put_contents($this->tempDir.'/test.blade.php', $unformatted);
+
+        $this->artisan('default', ['path' => [$this->tempDir], '--repair' => true, '--test' => true, '--config' => $this->configPath()])
+            ->assertFailed();
+
+        $this->assertSame($unformatted, file_get_contents($this->tempDir.'/test.blade.php'));
+    }
+
     private function initRepository(): void
     {
         $this->configPath();
