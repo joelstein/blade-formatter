@@ -172,6 +172,60 @@ class IndentationFormatterTest extends TestCase
     }
 
     #[Test]
+    public function it_indents_error_enderror_blocks(): void
+    {
+        $input = "\n<div>\n@error('email')\n<span>{{ \$message }}</span>\n@enderror\n</div>";
+        $expected = "\n<div>\n    @error('email')\n        <span>{{ \$message }}</span>\n    @enderror\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_feature_endfeature_blocks(): void
+    {
+        $input = "\n@feature('new-layout')\n<p>New</p>\n@else\n<p>Old</p>\n@endfeature";
+        $expected = "\n@feature('new-layout')\n    <p>New</p>\n@else\n    <p>Old</p>\n@endfeature";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_has_section_blocks_closed_by_endif(): void
+    {
+        $input = "\n<div>\n@hasSection('sidebar')\n<aside></aside>\n@endif\n</div>";
+        $expected = "\n<div>\n    @hasSection('sidebar')\n        <aside></aside>\n    @endif\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_section_missing_blocks_closed_by_endif(): void
+    {
+        $input = "\n@sectionMissing('sidebar')\n<p>No sidebar</p>\n@else\n<p>Has sidebar</p>\n@endif";
+        $expected = "\n@sectionMissing('sidebar')\n    <p>No sidebar</p>\n@else\n    <p>Has sidebar</p>\n@endif";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_does_not_indent_single_line_has_section_blocks(): void
+    {
+        $input = "\n<div>\n@hasSection('sidebar') <aside></aside> @endif\n<p>After</p>\n</div>";
+        $expected = "\n<div>\n    @hasSection('sidebar') <aside></aside> @endif\n    <p>After</p>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_nested_has_section_and_if_blocks(): void
+    {
+        $input = "\n@if(\$show)\n@hasSection('sidebar')\n<aside></aside>\n@endif\n<p>After</p>\n@endif";
+        $expected = "\n@if(\$show)\n    @hasSection('sidebar')\n        <aside></aside>\n    @endif\n    <p>After</p>\n@endif";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_indents_switch_case_endswitch_blocks(): void
     {
         $input = "\n@switch(\$type)\n@case('a')\n<p>A</p>\n@break\n@default\n<p>Default</p>\n@endswitch";

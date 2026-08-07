@@ -26,12 +26,20 @@ class IndentationFormatter
         '@section', '@push', '@pushOnce', '@prepend',
         '@component', '@slot',
         '@auth', '@guest', '@can', '@cannot', '@canany',
-        '@env', '@production',
+        '@env', '@production', '@feature',
+        '@error',
         '@unless', '@isset', '@empty', '@forelse',
         '@verbatim',
         '@once', '@persist', '@placeholder',
         '@fragment', '@teleport',
         '@assets', '@script',
+        '@hasSection', '@sectionMissing',
+    ];
+
+    /** Opening directives whose closing directive isn't @end + the directive name */
+    private const DIRECTIVE_CLOSINGS = [
+        '@hasSection' => '@endif',
+        '@sectionMissing' => '@endif',
     ];
 
     /** Blade directives that sit at the same indent as their opening directive */
@@ -59,15 +67,12 @@ class IndentationFormatter
 
     public function __construct()
     {
-        $this->closingDirectives = array_map(
-            fn (string $d): string => '@end'.substr($d, 1),
-            self::OPENING_DIRECTIVES
-        );
-
         $this->directivePairs = [];
         foreach (self::OPENING_DIRECTIVES as $d) {
-            $this->directivePairs[$d] = '@end'.substr($d, 1);
+            $this->directivePairs[$d] = self::DIRECTIVE_CLOSINGS[$d] ?? '@end'.substr($d, 1);
         }
+
+        $this->closingDirectives = array_values(array_unique(array_values($this->directivePairs)));
     }
 
     public function format(string $content, int $indentSize = 4): string
