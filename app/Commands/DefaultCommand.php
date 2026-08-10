@@ -6,6 +6,8 @@ use BladeFormatter\BatchFormatter;
 use LaravelZero\Framework\Commands\Command;
 use Symfony\Component\Console\Terminal;
 use Symfony\Component\Finder\Finder;
+use Symfony\Component\Finder\Iterator\PathFilterIterator;
+use Symfony\Component\Finder\SplFileInfo;
 
 use function Laravel\Prompts\info;
 use function Laravel\Prompts\warning;
@@ -212,10 +214,62 @@ class DefaultCommand extends Command
      */
     private function resolveFiles(array $config): array
     {
-        return array_values(array_filter(
+        $files = array_values(array_filter(
             $this->discoverFiles($config),
             fn (string $path): bool => ! $this->isIgnored($path),
         ));
+
+        return $this->applyExclusions($files, $this->excludePatterns($config));
+    }
+
+    /**
+     * The exclude patterns in effect: the built-in defaults plus any from config.
+     *
+     * @param  array<string, mixed>  $config
+     * @return list<string>
+     */
+    private function excludePatterns(array $config): array
+    {
+        /** @var list<string> $userExclude */
+        $userExclude = $config['exclude'] ?? [];
+
+        return array_values(array_unique(array_merge(self::EXCLUDE_DEFAULTS, $userExclude)));
+    }
+
+    /**
+     * Drop the files matching an exclude pattern.
+     *
+     * Applied to the resolved file list rather than to directory discovery, so
+     * an excluded file stays excluded however it was selected — turning up in a
+     * `--diff` or `--dirty` run, or named on the command line.
+     *
+     * Finder's own matching is reused so a pattern means the same thing here as
+     * it does there: a plain substring, or a PCRE pattern if it is delimited.
+     * Paths are matched relative to the working directory, so a pattern is
+     * written against the path as the project sees it.
+     *
+     * @param  list<string>  $files
+     * @param  list<string>  $exclude
+     * @return list<string>
+     */
+    private function applyExclusions(array $files, array $exclude): array
+    {
+        if ($files === [] || $exclude === []) {
+            return $files;
+        }
+
+        $entries = [];
+        foreach ($files as $path) {
+            $relative = str_replace('\\', '/', $this->relativePath($path));
+            $entries[$path] = new SplFileInfo($path, dirname($relative), $relative);
+        }
+
+        $kept = [];
+        foreach (new PathFilterIterator(new \ArrayIterator($entries), [], $exclude) as $file) {
+            $kept[] = $file->getPathname();
+        }
+
+        return $kept;
     }
 
     /**
@@ -276,11 +330,7 @@ class DefaultCommand extends Command
             return [];
         }
 
-        /** @var list<string> $userExclude */
-        $userExclude = $config['exclude'] ?? [];
-        $exclude = array_values(array_unique(array_merge(self::EXCLUDE_DEFAULTS, $userExclude)));
-
-        return $this->findBladeFiles($absolutePaths, $exclude);
+        return $this->findBladeFiles($absolutePaths);
     }
 
     /**
@@ -306,7 +356,7 @@ class DefaultCommand extends Command
         }
 
         if (! empty($dirs)) {
-            $files = array_merge($files, $this->findBladeFiles($dirs, self::EXCLUDE_DEFAULTS));
+            $files = array_merge($files, $this->findBladeFiles($dirs));
         }
 
         sort($files);
@@ -315,20 +365,18 @@ class DefaultCommand extends Command
     }
 
     /**
+     * Discovery only — exclusions are applied to the resolved list in
+     * {@see self::applyExclusions()}, so every run mode honors them.
+     *
      * @param  list<string>  $directories
-     * @param  list<string>  $exclude
      * @return list<string>
      */
-    private function findBladeFiles(array $directories, array $exclude): array
+    private function findBladeFiles(array $directories): array
     {
         $finder = Finder::create()
             ->files()
             ->name('*.blade.php')
             ->in($directories);
-
-        foreach ($exclude as $pattern) {
-            $finder->notPath($pattern);
-        }
 
         $files = [];
         foreach ($finder as $file) {

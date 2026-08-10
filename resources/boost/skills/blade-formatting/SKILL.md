@@ -62,7 +62,7 @@ Create `blade-formatter.json` in the project root to customize behavior:
 | Option | Description |
 |--------|-------------|
 | `paths` | Directories to scan for Blade files. Defaults to `resources/views`. |
-| `exclude` | Glob patterns to exclude from formatting. |
+| `exclude` | Path substrings or delimited regexes to exclude, matched relative to the working directory. Applies to every run mode. |
 | `indent_size` | Number of spaces per indentation level. Defaults to `4`. |
 | `pint_config_path` | Path to a custom Pint configuration file. Uses Pint's default resolution if `null`. |
 | `enable_pint` | Enable PHP formatting via Laravel Pint. |

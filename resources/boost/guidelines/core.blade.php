@@ -54,7 +54,8 @@ Run `vendor/bin/blade-format --test` alongside Pint in CI pipelines. It returns 
 
 ### Key Behaviors
 
-- Markdown mail templates (e.g. `<x-mail::message>`) are automatically skipped to preserve whitespace-sensitive formatting.
+- Markdown mail templates are never indented, since Markdown renders an indented line as a code block. This covers any template using an `<x-mail::>` component, plus anything under `vendor/mail`. Pint and Tailwind sorting still run on them.
+- `exclude` patterns apply to every run mode, including `--diff`, `--dirty`, and paths named on the command line.
 - Tailwind class sorting requires Node.js and the `prettier` and `prettier-plugin-tailwindcss` npm packages.
 - PHP formatting in `@php`/`@endphp` blocks and Livewire SFC sections uses the project's Pint configuration.
 @endverbatim

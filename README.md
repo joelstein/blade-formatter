@@ -10,7 +10,7 @@ Blade Formatter runs three formatters in sequence:
 2. **Blade indentation** — Auto-indents Blade templates with proper nesting for directives, HTML, components, and Alpine.js attributes
 3. **Tailwind class sorting** — Sorts Tailwind CSS classes using Prettier with [prettier-plugin-tailwindcss](https://github.com/tailwindlabs/prettier-plugin-tailwindcss)
 
-Each formatter can be enabled or disabled independently. Markdown mail templates (`<x-mail::message>`) are automatically skipped to preserve whitespace-sensitive formatting.
+Each formatter can be enabled or disabled independently. Markdown mail templates are never indented, since Markdown renders an indented line as a code block.
 
 ## Why Not Prettier?
 
@@ -33,9 +33,11 @@ Some Blade files are never formatted, because reformatting them would change wha
 |------|-----|
 | `Envoy.blade.php`, `envoy.blade.php` | Indentation inside `@task` is passed through to the shell |
 | `resources/boost/guidelines/**` | Whitespace-sensitive Markdown |
-| Templates containing `<x-mail::message>` | Whitespace-sensitive Markdown mail |
+| Templates using an `<x-mail::>` component, and anything under `vendor/mail` | Whitespace-sensitive Markdown mail |
 
 These are skipped even when named explicitly on the command line.
+
+Mail templates are a partial case: only indentation is skipped. Pint and Tailwind sorting still run, since neither changes the whitespace Markdown reads.
 
 ### Opting Out
 
@@ -111,6 +113,8 @@ Create a `blade-formatter.json` in your project root:
     "prettier_path": "node_modules/.bin/prettier"
 }
 ```
+
+`exclude` takes a path substring or a delimited regex, matched relative to the working directory, and applies to every run mode — including `--diff`, `--dirty`, and paths named on the command line. `flux/icon`, `vendor/mail`, and `vendor/notifications` are always excluded.
 
 ## VS Code Extension
 

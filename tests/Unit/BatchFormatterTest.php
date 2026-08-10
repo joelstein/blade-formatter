@@ -137,10 +137,15 @@ class BatchFormatterTest extends TestCase
 
     private function format(string $content): string
     {
-        $results = (new BatchFormatter(enablePint: false, enableTailwindSort: false))
-            ->formatBatch(['/tmp/a.blade.php' => $content]);
+        return $this->formatAt('/tmp/a.blade.php', $content);
+    }
 
-        return $results['/tmp/a.blade.php'];
+    private function formatAt(string $path, string $content): string
+    {
+        $results = (new BatchFormatter(enablePint: false, enableTailwindSort: false))
+            ->formatBatch([$path => $content]);
+
+        return $results[$path];
     }
 
     #[Test]
@@ -224,6 +229,76 @@ class BatchFormatterTest extends TestCase
 
         // Content should NOT be indented — Markdown whitespace is significant
         $this->assertSame($content, $results['/tmp/mail.blade.php']);
+    }
+
+    #[Test]
+    public function it_skips_indentation_for_published_mail_views(): void
+    {
+        // What `vendor:publish --tag=laravel-mail` writes: the pieces
+        // `<x-mail::message>` is assembled from, which never mention it.
+        $content = <<<'BLADE'
+<x-mail::layout>
+<x-slot:header>
+<x-mail::header :url="config('app.url')">
+{{ config('app.name') }}
+</x-mail::header>
+</x-slot:header>
+
+{{ Illuminate\Mail\Markdown::parse($slot) }}
+
+<x-slot:footer>
+<x-mail::footer>
+© {{ date('Y') }} {{ config('app.name') }}. @lang('All rights reserved.')
+</x-mail::footer>
+</x-slot:footer>
+</x-mail::layout>
+BLADE;
+
+        $this->assertSame($content, $this->format($content));
+    }
+
+    #[Test]
+    public function it_skips_indentation_for_templates_under_a_vendor_mail_path(): void
+    {
+        // The plain-text theme references no component at all, so only the
+        // path says it is whitespace-sensitive Markdown.
+        $content = "@if (! empty(\$header))\n{!! strip_tags(\$header) !!}\n@endif\n\n{!! strip_tags(\$slot) !!}\n";
+
+        $path = '/tmp/resources/views/vendor/mail/text/message.blade.php';
+
+        $this->assertSame($content, $this->formatAt($path, $content));
+    }
+
+    #[Test]
+    public function it_still_indents_templates_outside_a_mail_path_that_use_no_mail_components(): void
+    {
+        $path = '/tmp/resources/views/mail-preview.blade.php';
+
+        $result = $this->formatAt($path, "<div>\n<p>Hello</p>\n</div>");
+
+        $this->assertStringContainsString('    <p>Hello</p>', $result);
+    }
+
+    #[Test]
+    public function it_still_sorts_tailwind_classes_in_mail_views(): void
+    {
+        exec('npx prettier --version 2>/dev/null', $output, $exitCode);
+
+        if ($exitCode !== 0) {
+            $this->markTestSkipped('Prettier with prettier-plugin-tailwindcss is not installed.');
+        }
+
+        // Only indentation breaks Markdown rendering; class order does not.
+        $content = "<x-mail::layout>\n<div class=\"font-bold text-red-500 flex\">\nHello\n</div>\n</x-mail::layout>";
+
+        $path = '/tmp/resources/views/vendor/mail/html/themed.blade.php';
+
+        $formatter = new BatchFormatter(enablePint: false, enableTailwindSort: true);
+        $result = $formatter->formatBatch([$path => $content])[$path];
+
+        $this->assertStringContainsString('class="flex font-bold text-red-500"', $result);
+        // Still unindented
+        $this->assertStringContainsString("\n<div class=", $result);
     }
 
     #[Test]

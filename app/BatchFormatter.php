@@ -127,7 +127,7 @@ class BatchFormatter
             }
 
             // Apply indentation (skip Markdown mail templates where whitespace affects rendering)
-            if ($this->enableIndentation && ! preg_match('/<x-mail::message[\s>]/', $blade)) {
+            if ($this->enableIndentation && ! self::isMarkdownMail($path, $blade)) {
                 $blade = $indentationFormatter->format($blade, $this->indentSize);
             }
 
@@ -161,6 +161,28 @@ class BatchFormatter
         }
 
         return $results;
+    }
+
+    /**
+     * Whether a template is one of Blade's Markdown mail views.
+     *
+     * The assembled output of these is run through a Markdown parser, so any
+     * line the formatter indents is delivered as a code block in the email.
+     *
+     * A message written by hand opens with `<x-mail::message>`, but the views
+     * `vendor:publish` writes to `resources/views/vendor/mail` are the pieces
+     * that component is built from — `<x-mail::layout>`, `<x-mail::header>`,
+     * `<x-mail::footer>` and so on — and a theme partial may reference no
+     * component at all. So the whole `x-mail::` namespace counts, as does
+     * anything sitting under a `vendor/mail` path.
+     */
+    public static function isMarkdownMail(string $path, string $content): bool
+    {
+        if (str_contains($content, '<x-mail::')) {
+            return true;
+        }
+
+        return str_contains(str_replace('\\', '/', $path), 'vendor/mail/');
     }
 
     /**

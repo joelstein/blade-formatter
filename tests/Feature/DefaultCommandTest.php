@@ -282,6 +282,125 @@ class DefaultCommandTest extends TestCase
         $this->assertSame($unformatted, file_get_contents($this->tempDir.'/test.blade.php'));
     }
 
+    #[Test]
+    public function it_leaves_markdown_mail_views_untouched_in_every_mode(): void
+    {
+        $this->initRepository();
+
+        // A published mail view, matched by its `vendor/mail` path...
+        mkdir($this->tempDir.'/resources/views/vendor/mail/html', 0755, true);
+        $published = $this->tempDir.'/resources/views/vendor/mail/html/message.blade.php';
+
+        // ...and one of the project's own mail templates, matched by the
+        // `x-mail::` components it builds the message from.
+        mkdir($this->tempDir.'/resources/views/emails', 0755, true);
+        $own = $this->tempDir.'/resources/views/emails/order.blade.php';
+
+        $unformatted = "<x-mail::layout>\n<x-slot:header>\n<x-mail::header :url=\"config('app.url')\">\n{{ config('app.name') }}\n</x-mail::header>\n</x-slot:header>\n\n{{ \$slot }}\n</x-mail::layout>";
+
+        file_put_contents($published, $unformatted);
+        file_put_contents($own, $unformatted);
+
+        $assertUntouched = function () use ($published, $own, $unformatted): void {
+            $this->assertSame($unformatted, file_get_contents($published));
+            $this->assertSame($unformatted, file_get_contents($own));
+        };
+
+        $cwd = getcwd();
+        chdir($this->tempDir);
+
+        try {
+            // Named explicitly on the command line.
+            $this->artisan('default', ['path' => [$published, $own], '--config' => $this->configPath()])
+                ->assertSuccessful();
+            $assertUntouched();
+
+            // Discovered by scanning a directory.
+            $this->artisan('default', ['path' => [$this->tempDir], '--config' => $this->configPath()])
+                ->assertSuccessful();
+            $assertUntouched();
+
+            // Untracked, so picked up as dirty.
+            $this->artisan('default', ['--dirty' => true, '--config' => $this->configPath()])
+                ->assertSuccessful();
+            $assertUntouched();
+
+            // Modified since a ref, so picked up by --diff.
+            $this->git('add -A');
+            $this->git('-c user.email=t@t -c user.name=T commit -m init');
+
+            $changed = str_replace(
+                '{{ $slot }}',
+                "{{ \$slot }}\n\n<x-mail::button :url=\"\$url\">\nView order\n</x-mail::button>",
+                $unformatted,
+            );
+            file_put_contents($published, $changed);
+            file_put_contents($own, $changed);
+
+            $this->artisan('default', ['--diff' => 'HEAD', '--config' => $this->configPath()])
+                ->assertSuccessful();
+
+            $this->assertSame($changed, file_get_contents($published));
+            $this->assertSame($changed, file_get_contents($own));
+        } finally {
+            chdir($cwd);
+        }
+    }
+
+    #[Test]
+    public function exclude_patterns_apply_to_every_run_mode(): void
+    {
+        $this->initRepository();
+
+        $unformatted = "<div>\n<p>Hello</p>\n</div>";
+        $formatted = "<div>\n    <p>Hello</p>\n</div>";
+
+        mkdir($this->tempDir.'/emails/legacy', 0755, true);
+        $excluded = $this->tempDir.'/emails/legacy/receipt.blade.php';
+        $included = $this->tempDir.'/page.blade.php';
+
+        $config = $this->configPath(['exclude' => ['emails/legacy']]);
+
+        $cwd = getcwd();
+        chdir($this->tempDir);
+
+        try {
+            // Named explicitly on the command line.
+            file_put_contents($excluded, $unformatted);
+            file_put_contents($included, $unformatted);
+
+            $this->artisan('default', ['path' => [$excluded, $included], '--config' => $config])
+                ->assertSuccessful();
+
+            $this->assertSame($unformatted, file_get_contents($excluded));
+            $this->assertSame($formatted, file_get_contents($included));
+
+            // Untracked, so picked up as dirty.
+            file_put_contents($included, $unformatted);
+
+            $this->artisan('default', ['--dirty' => true, '--config' => $config])
+                ->assertSuccessful();
+
+            $this->assertSame($unformatted, file_get_contents($excluded));
+            $this->assertSame($formatted, file_get_contents($included));
+
+            // Modified since a ref, so picked up by --diff.
+            $this->git('add -A');
+            $this->git('-c user.email=t@t -c user.name=T commit -m init');
+            $changed = $unformatted."\n<span>Changed</span>";
+            file_put_contents($excluded, $changed);
+            file_put_contents($included, $unformatted);
+
+            $this->artisan('default', ['--diff' => 'HEAD', '--config' => $config])
+                ->assertSuccessful();
+
+            $this->assertSame($changed, file_get_contents($excluded));
+            $this->assertSame($formatted, file_get_contents($included));
+        } finally {
+            chdir($cwd);
+        }
+    }
+
     private function initRepository(): void
     {
         $this->configPath();
@@ -299,17 +418,17 @@ class DefaultCommandTest extends TestCase
 
     /**
      * Create a minimal config file that disables Pint and Tailwind (no external deps needed).
+     *
+     * @param  array<string, mixed>  $overrides
      */
-    private function configPath(): string
+    private function configPath(array $overrides = []): string
     {
         $configPath = $this->tempDir.'/blade-formatter.json';
 
-        if (! file_exists($configPath)) {
-            file_put_contents($configPath, json_encode([
-                'enable_pint' => false,
-                'enable_tailwind_sort' => false,
-            ]));
-        }
+        file_put_contents($configPath, json_encode(array_merge([
+            'enable_pint' => false,
+            'enable_tailwind_sort' => false,
+        ], $overrides)));
 
         return $configPath;
     }
