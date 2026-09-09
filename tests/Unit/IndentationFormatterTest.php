@@ -930,4 +930,63 @@ BLADE;
 
         $this->assertSame($expected, $this->indent($input));
     }
+    // ── Multi-line echo expressions inside multi-line tags ──────────
+
+    #[Test]
+    public function it_indents_a_multi_line_echo_array_inside_a_multi_line_tag(): void
+    {
+        $input = <<<'BLADE'
+
+<dl
+{{ $attributes->class([
+'grid gap-x-6',
+// Two columns only once there is room for them.
+'sm:inline-grid sm:grid-cols-[repeat(2,auto)]',
+]) }}
+>
+{{ $slot }}
+</dl>
+BLADE;
+        $expected = <<<'BLADE'
+
+<dl
+    {{ $attributes->class([
+        'grid gap-x-6',
+        // Two columns only once there is room for them.
+        'sm:inline-grid sm:grid-cols-[repeat(2,auto)]',
+    ]) }}
+>
+    {{ $slot }}
+</dl>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_a_raw_echo_array_inside_a_multi_line_tag(): void
+    {
+        $input = <<<'BLADE'
+
+<div
+{!! $attributes->merge([
+'class' => 'p-4',
+]) !!}
+>
+<span>Content</span>
+</div>
+BLADE;
+        $expected = <<<'BLADE'
+
+<div
+    {!! $attributes->merge([
+        'class' => 'p-4',
+    ]) !!}
+>
+    <span>Content</span>
+</div>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
 }

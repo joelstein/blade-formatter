@@ -194,8 +194,11 @@ class IndentationFormatter
 
             // --- Handle lines that are continuations of a multi-line tag ---
             if ($inMultiLineTag) {
-                $openBraces = $this->countChar($trimmed, '{') + $this->countChar($trimmed, '[');
-                $closeBraces = $this->countChar($trimmed, '}') + $this->countChar($trimmed, ']');
+                // The braces of a `{{ }}` echo are delimiters, not nesting, so an
+                // attribute like `{{ $attributes->class([` opens one level, not three.
+                $tagLine = $this->stripBladeExpressionDelimiters($trimmed);
+                $openBraces = $this->countChar($tagLine, '{') + $this->countChar($tagLine, '[');
+                $closeBraces = $this->countChar($tagLine, '}') + $this->countChar($tagLine, ']');
 
                 $priorTagBraceOffset = $tagBraceOffset;
                 if ($closeBraces > $openBraces) {
@@ -745,10 +748,10 @@ class IndentationFormatter
     }
 
     /**
-     * Strip Blade expression delimiters and quoted string contents
-     * so their braces don't affect depth counting.
+     * Blank out the braces that delimit a Blade expression ({{ }}, {!! !!},
+     * {{{ }}}, {{-- --}}) so they aren't mistaken for nesting.
      */
-    private function stripBladeDelimiters(string $line): string
+    private function stripBladeExpressionDelimiters(string $line): string
     {
         $line = str_replace('{{{', '   ', $line);
         $line = str_replace('}}}', '   ', $line);
@@ -757,6 +760,17 @@ class IndentationFormatter
         $line = str_replace('!!}', '   ', $line);
         $line = str_replace('{{', '  ', $line);
         $line = str_replace('}}', '  ', $line);
+
+        return $line;
+    }
+
+    /**
+     * Strip Blade expression delimiters and quoted string contents
+     * so their braces don't affect depth counting.
+     */
+    private function stripBladeDelimiters(string $line): string
+    {
+        $line = $this->stripBladeExpressionDelimiters($line);
 
         // Strip content inside quoted strings so braces in string literals
         // (e.g. ICU format strings like '{count, plural, one {# hour}}')
