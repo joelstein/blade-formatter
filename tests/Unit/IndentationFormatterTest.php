@@ -538,6 +538,42 @@ BLADE;
     }
 
     #[Test]
+    public function it_indents_children_of_a_component_whose_class_directive_compares_with_greater_than(): void
+    {
+        $input = "\n<x-panel @class(['total', 'text-red-600' => \$order->due > 0])>\n{{ \$order->due }}\n</x-panel>";
+        $expected = "\n<x-panel @class(['total', 'text-red-600' => \$order->due > 0])>\n    {{ \$order->due }}\n</x-panel>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_children_of_a_namespaced_component_whose_class_directive_compares_with_less_than(): void
+    {
+        $input = "\n<flux:badge @class(['dim' => \$count < 5])>\n{{ \$count }}\n</flux:badge>";
+        $expected = "\n<flux:badge @class(['dim' => \$count < 5])>\n    {{ \$count }}\n</flux:badge>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_treats_a_tag_as_multi_line_when_its_class_directive_compares_with_greater_than(): void
+    {
+        $input = "\n<x-panel @class(['text-red-600' => \$order->due > 0])\nsize=\"lg\"\n>\nTotal\n</x-panel>";
+        $expected = "\n<x-panel @class(['text-red-600' => \$order->due > 0])\n    size=\"lg\"\n>\n    Total\n</x-panel>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_keeps_greater_than_in_plain_text_from_affecting_indentation(): void
+    {
+        $input = "\n<div>\n5 > 3 is true\n<span>ok</span>\n</div>";
+        $expected = "\n<div>\n    5 > 3 is true\n    <span>ok</span>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_indents_style_directive_on_own_attribute_line(): void
     {
         $input = "\n<div\n@style([\n'color: red' => \$highlight,\n])\n>\nContent\n</div>";

@@ -466,6 +466,7 @@ class IndentationFormatter
                     ? (string) preg_replace('/^<\{\{.*?\}\}/', '', $trimmed, 1)
                     : (string) preg_replace('/<[\w:.-]+/', '', $trimmed, 1);
                 $cleanedWithoutTag = str_replace(['->', '=>', '>='], '  ', $withoutTag);
+                $cleanedWithoutTag = $this->maskExpressionAngles($cleanedWithoutTag);
                 $cleanedWithoutTag = (string) preg_replace('/\{\{.*?\}\}|\{!!.*?!!\}/', '', $cleanedWithoutTag);
                 $cleanedWithoutTag = (string) preg_replace('/"[^"]*"|\'[^\']*\'/', '', $cleanedWithoutTag);
                 $hasClosingBracket = (bool) preg_match('/\/?>/', $cleanedWithoutTag);
@@ -571,6 +572,7 @@ class IndentationFormatter
         // Neutralize PHP operators containing `>` so they don't prematurely
         // terminate attribute content in the tag regex (e.g. `=>` inside @class)
         $searchLine = str_replace(['=>', '->', '>='], '  ', $line);
+        $searchLine = $this->maskExpressionAngles($searchLine);
 
         // HTML/component opening tags (not self-closing, not void)
         preg_match_all('/<([\w:.-]+)(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $searchLine, $openTagMatches, PREG_SET_ORDER);
@@ -638,6 +640,75 @@ class IndentationFormatter
         }
 
         return $count;
+    }
+
+    /**
+     * Blank out angle brackets that belong to a PHP expression rather than an
+     * HTML tag boundary: comparisons inside a Blade directive's arguments
+     * (e.g. `@class(['text-red-600' => $invoice->due > 0])`) or inside a
+     * `{{ }}` / `{!! !!}` expression. Left alone they end the tag regex early,
+     * so the tag never opens an indent level.
+     */
+    private function maskExpressionAngles(string $line): string
+    {
+        $length = strlen($line);
+        $quote = null;
+        $parenDepth = 0;
+        $expressionEnd = 0;
+
+        for ($i = 0; $i < $length; $i++) {
+            $char = $line[$i];
+
+            if ($quote !== null) {
+                if ($char === '\\') {
+                    $i++;
+                } elseif ($char === $quote) {
+                    $quote = null;
+                }
+
+                continue;
+            }
+
+            if ($char === '"' || $char === "'") {
+                $quote = $char;
+
+                continue;
+            }
+
+            if ($parenDepth > 0) {
+                if ($char === '(') {
+                    $parenDepth++;
+                } elseif ($char === ')') {
+                    $parenDepth--;
+                } elseif ($char === '<' || $char === '>') {
+                    $line[$i] = ' ';
+                }
+
+                continue;
+            }
+
+            if ($i < $expressionEnd) {
+                if ($char === '<' || $char === '>') {
+                    $line[$i] = ' ';
+                }
+
+                continue;
+            }
+
+            // A directive's arguments run to the matching closing paren
+            if ($char === '@' && preg_match('/^@\w+\s*\(/', substr($line, $i), $directiveMatch)) {
+                $parenDepth = 1;
+                $i += strlen($directiveMatch[0]) - 1;
+
+                continue;
+            }
+
+            if ($char === '{' && preg_match('/^\{\{.*?\}\}|^\{!!.*?!!\}/', substr($line, $i), $expressionMatch)) {
+                $expressionEnd = $i + strlen($expressionMatch[0]);
+            }
+        }
+
+        return $line;
     }
 
     private function isCaseDirective(string $line): bool
