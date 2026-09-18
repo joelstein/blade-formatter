@@ -989,4 +989,31 @@ BLADE;
 
         $this->assertSame($expected, $this->indent($input));
     }
+
+    #[Test]
+    public function it_ignores_braces_in_string_literals_inside_a_multi_line_tag(): void
+    {
+        $input = <<<'BLADE'
+
+<div>
+<x-option
+:label="t('{count, plural, one {# item} other {# items}}', ['count' => $count])"
+:hint="t('{count, plural, one {Move to {name}} other {Move all to {name}}}', ['count' => $count])"
+/>
+<p>After</p>
+</div>
+BLADE;
+        $expected = <<<'BLADE'
+
+<div>
+    <x-option
+        :label="t('{count, plural, one {# item} other {# items}}', ['count' => $count])"
+        :hint="t('{count, plural, one {Move to {name}} other {Move all to {name}}}', ['count' => $count])"
+    />
+    <p>After</p>
+</div>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
 }

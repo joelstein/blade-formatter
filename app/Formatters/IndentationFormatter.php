@@ -196,7 +196,9 @@ class IndentationFormatter
             if ($inMultiLineTag) {
                 // The braces of a `{{ }}` echo are delimiters, not nesting, so an
                 // attribute like `{{ $attributes->class([` opens one level, not three.
-                $tagLine = $this->stripBladeExpressionDelimiters($trimmed);
+                // Quoted strings are blanked too, so ICU strings ending in `}}` count as
+                // literal braces rather than as the end of an echo.
+                $tagLine = $this->stripBladeDelimiters($trimmed);
                 $openBraces = $this->countChar($tagLine, '{') + $this->countChar($tagLine, '[');
                 $closeBraces = $this->countChar($tagLine, '}') + $this->countChar($tagLine, ']');
 
