@@ -1016,4 +1016,62 @@ BLADE;
 
         $this->assertSame($expected, $this->indent($input));
     }
+
+    #[Test]
+    public function it_aligns_forelse_empty_with_its_opening_directive(): void
+    {
+        $input = <<<'BLADE'
+<div>
+@forelse ($items as $item)
+<div>
+<span>{{ $item }}</span>
+</div>
+@empty
+<span>None</span>
+@endforelse
+</div>
+<p>After</p>
+BLADE;
+        $expected = <<<'BLADE'
+<div>
+    @forelse ($items as $item)
+        <div>
+            <span>{{ $item }}</span>
+        </div>
+    @empty
+        <span>None</span>
+    @endforelse
+</div>
+<p>After</p>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_still_treats_empty_with_an_argument_as_a_block(): void
+    {
+        $input = <<<'BLADE'
+<div>
+@empty($items)
+<p>None</p>
+@endempty
+@empty ($others)
+<p>No others</p>
+@endempty
+</div>
+BLADE;
+        $expected = <<<'BLADE'
+<div>
+    @empty($items)
+        <p>None</p>
+    @endempty
+    @empty ($others)
+        <p>No others</p>
+    @endempty
+</div>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
 }

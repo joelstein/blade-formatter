@@ -279,7 +279,7 @@ class IndentationFormatter
                     }
                 }
 
-                if ($isDirectiveLine && in_array($tagDirective, self::OPENING_DIRECTIVES)) {
+                if ($isDirectiveLine && in_array($tagDirective, self::OPENING_DIRECTIVES) && ! $this->isForelseEmpty($trimmed)) {
                     $closing = $this->directivePairs[$tagDirective] ?? null;
                     $isSingleLine = $closing !== null && str_contains($trimmed, $closing);
                     if (! $isSingleLine) {
@@ -525,7 +525,7 @@ class IndentationFormatter
             // Track opening directive write level for stack-based alignment
             if (preg_match('/^@(\w+)/', $trimmed, $directiveStackMatch)) {
                 $directiveForStack = '@'.$directiveStackMatch[1];
-                if (in_array($directiveForStack, self::OPENING_DIRECTIVES)) {
+                if (in_array($directiveForStack, self::OPENING_DIRECTIVES) && ! $this->isForelseEmpty($trimmed)) {
                     $isInlinePhp = $directiveStackMatch[1] === 'php' && preg_match('/^@php\s*\(/', $trimmed);
                     $isInlineSection = $directiveStackMatch[1] === 'section' && preg_match('/^@section\s*\([^)]*,/', $trimmed);
                     $closing = $this->directivePairs[$directiveForStack] ?? null;
@@ -553,7 +553,7 @@ class IndentationFormatter
         // Blade opening directives
         if (preg_match('/^@(\w+)/', $line, $directiveMatch)) {
             $directive = '@'.$directiveMatch[1];
-            if (in_array($directive, self::OPENING_DIRECTIVES)) {
+            if (in_array($directive, self::OPENING_DIRECTIVES) && ! $this->isForelseEmpty($line)) {
                 // @php(...) is an inline expression, not a block — no indent change
                 // @section('name', 'value') with two arguments is an inline section
                 if ($directiveMatch[1] === 'php' && preg_match('/^@php\s*\(/', $line)) {
@@ -727,11 +727,24 @@ class IndentationFormatter
 
     private function isMidblockLine(string $line): bool
     {
+        if ($this->isForelseEmpty($line)) {
+            return true;
+        }
+
         if (preg_match('/^@(\w+)/', $line, $match)) {
             return in_array('@'.$match[1], self::MIDBLOCK_DIRECTIVES);
         }
 
         return false;
+    }
+
+    /**
+     * A bare `@empty` is the @forelse separator (like @else); only
+     * `@empty(...)` opens its own block closed by @endempty.
+     */
+    private function isForelseEmpty(string $line): bool
+    {
+        return (bool) preg_match('/^@empty\b(?!\s*\()/', $line);
     }
 
     /**
