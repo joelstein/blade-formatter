@@ -743,6 +743,24 @@ BLADE;
     }
 
     #[Test]
+    public function it_ignores_directives_and_tags_inside_multi_line_blade_comments(): void
+    {
+        $input = "\n<div>\n{{-- Wraps the grid in an\n@island so only it re-renders,\n<section> and @if are prose here\n</div> too. --}}\n<p>After</p>\n</div>";
+        $expected = "\n<div>\n    {{-- Wraps the grid in an\n    @island so only it re-renders,\n    <section> and @if are prose here\n    </div> too. --}}\n    <p>After</p>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_resumes_formatting_after_a_multi_line_blade_comment(): void
+    {
+        $input = "\n{{--\n@foreach note\n--}}\n@if (\$a)\n<p>A</p>\n@endif";
+        $expected = "\n{{--\n@foreach note\n--}}\n@if (\$a)\n    <p>A</p>\n@endif";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
     public function it_handles_mixed_blade_expressions_and_real_braces(): void
     {
         $input = "\n@props([\n'name' => '{{ \$default }}',\n])";

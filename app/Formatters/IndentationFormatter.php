@@ -106,6 +106,7 @@ class IndentationFormatter
         $preserveBlock = null;
         $indentPreserveBlock = null;
         $indentPreserveLevel = 0;
+        $inMultiLineComment = false;
 
         for ($lineIndex = 0; $lineIndex < count($lines); $lineIndex++) {
             $rawLine = $lines[$lineIndex];
@@ -147,6 +148,25 @@ class IndentationFormatter
                     // Prepend base indent, preserving the line's own relative whitespace from Pint
                     $result[] = str_repeat($indent, $indentPreserveLevel).$rawLine;
                 }
+
+                continue;
+            }
+
+            // --- Handle multi-line Blade comments ({{-- ... --}}) ---
+            // Comment text is prose, not markup: a line that happens to start with a
+            // directive or tag (e.g. "@island passes...") must not change the indent.
+            if ($inMultiLineComment) {
+                $result[] = str_repeat($indent, $level + $braceDepth).$trimmed;
+                if (str_contains($trimmed, '--}}')) {
+                    $inMultiLineComment = false;
+                }
+
+                continue;
+            }
+
+            if (! $inMultiLineTag && str_starts_with($trimmed, '{{--') && ! str_contains($trimmed, '--}}')) {
+                $result[] = str_repeat($indent, $level + $braceDepth).$trimmed;
+                $inMultiLineComment = true;
 
                 continue;
             }
