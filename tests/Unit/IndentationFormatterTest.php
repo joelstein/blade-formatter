@@ -1074,4 +1074,193 @@ BLADE;
 
         $this->assertSame($expected, $this->indent($input));
     }
+
+    // ── Livewire, Volt, and newer Laravel block directives ───────────
+
+    #[Test]
+    public function it_indents_livewire_island_blocks(): void
+    {
+        $input = <<<'BLADE'
+<div>
+@island
+<p>Hello</p>
+@endisland
+@island(name: 'stats', lazy: true)
+<div>
+<span>{{ $this->total }}</span>
+</div>
+@placeholder
+<p>Loading...</p>
+@endplaceholder
+@endisland
+</div>
+BLADE;
+        $expected = <<<'BLADE'
+<div>
+    @island
+        <p>Hello</p>
+    @endisland
+    @island(name: 'stats', lazy: true)
+        <div>
+            <span>{{ $this->total }}</span>
+        </div>
+        @placeholder
+            <p>Loading...</p>
+        @endplaceholder
+    @endisland
+</div>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_island_blocks_inside_components(): void
+    {
+        $input = <<<'BLADE'
+<x-card>
+@island
+<p>Hello</p>
+@endisland
+</x-card>
+BLADE;
+        $expected = <<<'BLADE'
+<x-card>
+    @island
+        <p>Hello</p>
+    @endisland
+</x-card>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_volt_blocks(): void
+    {
+        $input = <<<'BLADE'
+<x-layout>
+@volt('counter')
+<div>
+<button wire:click="increment">{{ $count }}</button>
+</div>
+@endvolt
+</x-layout>
+BLADE;
+        $expected = <<<'BLADE'
+<x-layout>
+    @volt('counter')
+        <div>
+            <button wire:click="increment">{{ $count }}</button>
+        </div>
+    @endvolt
+</x-layout>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_indents_session_and_context_blocks(): void
+    {
+        $input = <<<'BLADE'
+<div>
+@session('status')
+<p>{{ $value }}</p>
+@endsession
+@context('locale')
+<p>{{ $value }}</p>
+@endcontext
+</div>
+BLADE;
+        $expected = <<<'BLADE'
+<div>
+    @session('status')
+        <p>{{ $value }}</p>
+    @endsession
+    @context('locale')
+        <p>{{ $value }}</p>
+    @endcontext
+</div>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_matches_camel_case_closing_directives(): void
+    {
+        $input = <<<'BLADE'
+<div>
+@pushOnce('scripts')
+<script></script>
+@endPushOnce
+@pushIf($shouldPush, 'scripts')
+<script></script>
+@endPushIf
+@prependOnce('scripts')
+<script></script>
+@endPrependOnce
+<p>After</p>
+</div>
+BLADE;
+        $expected = <<<'BLADE'
+<div>
+    @pushOnce('scripts')
+        <script></script>
+    @endPushOnce
+    @pushIf($shouldPush, 'scripts')
+        <script></script>
+    @endPushIf
+    @prependOnce('scripts')
+        <script></script>
+    @endPrependOnce
+    <p>After</p>
+</div>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_matches_directive_names_case_insensitively(): void
+    {
+        $input = <<<'BLADE'
+<div>
+@pushonce('scripts')
+<script></script>
+@endpushonce
+@hassection('sidebar')
+<aside>@yield('sidebar')</aside>
+@endif
+</div>
+BLADE;
+        $expected = <<<'BLADE'
+<div>
+    @pushonce('scripts')
+        <script></script>
+    @endpushonce
+    @hassection('sidebar')
+        <aside>@yield('sidebar')</aside>
+    @endif
+</div>
+BLADE;
+
+        $this->assertSame($expected, $this->indent($input));
+    }
+
+    #[Test]
+    public function it_keeps_single_line_camel_case_blocks_flat(): void
+    {
+        $input = "<div>
+@pushOnce('scripts') <script></script> @endPushOnce
+<p>After</p>
+</div>";
+        $expected = "<div>
+    @pushOnce('scripts') <script></script> @endPushOnce
+    <p>After</p>
+</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
 }

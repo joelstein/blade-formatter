@@ -23,20 +23,24 @@ class IndentationFormatter
     /** Blade directives that open a block */
     private const OPENING_DIRECTIVES = [
         '@if', '@foreach', '@for', '@while', '@switch',
-        '@section', '@push', '@pushOnce', '@prepend',
+        '@section', '@push', '@pushOnce', '@pushIf', '@prepend', '@prependOnce',
         '@component', '@slot',
         '@auth', '@guest', '@can', '@cannot', '@canany',
         '@env', '@production', '@feature',
         '@error',
         '@unless', '@isset', '@empty', '@forelse',
         '@verbatim',
-        '@once', '@persist', '@placeholder',
+        '@once', '@persist', '@placeholder', '@island',
         '@fragment', '@teleport',
-        '@assets', '@script',
+        '@assets', '@script', '@volt',
+        '@session', '@context',
         '@hasSection', '@sectionMissing',
     ];
 
-    /** Opening directives whose closing directive isn't @end + the directive name */
+    /**
+     * Opening directives whose closing directive isn't @end + the directive name.
+     * Directive names are matched case-insensitively, as Blade does.
+     */
     private const DIRECTIVE_CLOSINGS = [
         '@hasSection' => '@endif',
         '@sectionMissing' => '@endif',
@@ -59,17 +63,18 @@ class IndentationFormatter
         ['open' => '/^@php\s*$/', 'close' => '/^@endphp\b/'],
     ];
 
-    /** @var list<string> */
+    /** @var list<string> Lowercased closing directives */
     private array $closingDirectives;
 
-    /** @var array<string, string> */
+    /** @var array<string, string> Lowercased opening directive => lowercased closing directive */
     private array $directivePairs;
 
     public function __construct()
     {
         $this->directivePairs = [];
         foreach (self::OPENING_DIRECTIVES as $d) {
-            $this->directivePairs[$d] = self::DIRECTIVE_CLOSINGS[$d] ?? '@end'.substr($d, 1);
+            $closing = self::DIRECTIVE_CLOSINGS[$d] ?? '@end'.substr($d, 1);
+            $this->directivePairs[strtolower($d)] = strtolower($closing);
         }
 
         $this->closingDirectives = array_values(array_unique(array_values($this->directivePairs)));
@@ -250,9 +255,9 @@ class IndentationFormatter
 
                 // Detect Blade directives inside multi-line tags (e.g. @if/@endif for conditional attributes)
                 $isDirectiveLine = (bool) preg_match('/^@(\w+)/', $trimmed, $tagDirectiveMatch);
-                $tagDirective = $isDirectiveLine ? '@'.$tagDirectiveMatch[1] : null;
+                $tagDirective = $isDirectiveLine ? '@'.$tagDirectiveMatch[1] : '';
 
-                if ($isDirectiveLine && in_array($tagDirective, $this->closingDirectives)) {
+                if ($isDirectiveLine && $this->isClosingDirective($tagDirective)) {
                     $directiveDepth = max(0, $directiveDepth - 1);
                     $result[] = str_repeat($indent, $level + 1 + $braceDepth + $directiveDepth).$trimmed;
                 } elseif ($isDirectiveLine && $this->isMidblockLine($trimmed)) {
@@ -279,9 +284,8 @@ class IndentationFormatter
                     }
                 }
 
-                if ($isDirectiveLine && in_array($tagDirective, self::OPENING_DIRECTIVES) && ! $this->isForelseEmpty($trimmed)) {
-                    $closing = $this->directivePairs[$tagDirective] ?? null;
-                    $isSingleLine = $closing !== null && str_contains($trimmed, $closing);
+                if ($isDirectiveLine && $this->isOpeningDirective($tagDirective) && ! $this->isForelseEmpty($trimmed)) {
+                    $isSingleLine = $this->closesOnSameLine($tagDirective, $trimmed);
                     if (! $isSingleLine) {
                         $directiveDepth++;
                     }
@@ -525,11 +529,10 @@ class IndentationFormatter
             // Track opening directive write level for stack-based alignment
             if (preg_match('/^@(\w+)/', $trimmed, $directiveStackMatch)) {
                 $directiveForStack = '@'.$directiveStackMatch[1];
-                if (in_array($directiveForStack, self::OPENING_DIRECTIVES) && ! $this->isForelseEmpty($trimmed)) {
+                if ($this->isOpeningDirective($directiveForStack) && ! $this->isForelseEmpty($trimmed)) {
                     $isInlinePhp = $directiveStackMatch[1] === 'php' && preg_match('/^@php\s*\(/', $trimmed);
                     $isInlineSection = $directiveStackMatch[1] === 'section' && preg_match('/^@section\s*\([^)]*,/', $trimmed);
-                    $closing = $this->directivePairs[$directiveForStack] ?? null;
-                    $isSingleLine = $closing !== null && str_contains($trimmed, $closing);
+                    $isSingleLine = $this->closesOnSameLine($directiveForStack, $trimmed);
 
                     if (! $isInlinePhp && ! $isInlineSection && ! $isSingleLine) {
                         $directiveStack[] = $preOpeningLevel;
@@ -553,18 +556,15 @@ class IndentationFormatter
         // Blade opening directives
         if (preg_match('/^@(\w+)/', $line, $directiveMatch)) {
             $directive = '@'.$directiveMatch[1];
-            if (in_array($directive, self::OPENING_DIRECTIVES) && ! $this->isForelseEmpty($line)) {
+            if ($this->isOpeningDirective($directive) && ! $this->isForelseEmpty($line)) {
                 // @php(...) is an inline expression, not a block — no indent change
                 // @section('name', 'value') with two arguments is an inline section
                 if ($directiveMatch[1] === 'php' && preg_match('/^@php\s*\(/', $line)) {
                     // skip — inline @php expression
                 } elseif ($directiveMatch[1] === 'section' && preg_match('/^@section\s*\([^)]*,/', $line)) {
                     // skip — inline @section('name', 'value')
-                } else {
-                    $closing = $this->directivePairs[$directive] ?? null;
-                    if ($closing === null || ! str_contains($line, $closing)) {
-                        $count++;
-                    }
+                } elseif (! $this->closesOnSameLine($directive, $line)) {
+                    $count++;
                 }
             }
         }
@@ -631,7 +631,7 @@ class IndentationFormatter
         // Blade closing directives
         if (preg_match('/^@(\w+)/', $line, $directiveMatch)) {
             $directive = '@'.$directiveMatch[1];
-            if (in_array($directive, $this->closingDirectives)) {
+            if ($this->isClosingDirective($directive)) {
                 $count--;
             }
         }
@@ -714,6 +714,24 @@ class IndentationFormatter
         }
 
         return $line;
+    }
+
+    private function isOpeningDirective(string $directive): bool
+    {
+        return isset($this->directivePairs[strtolower($directive)]);
+    }
+
+    private function isClosingDirective(string $directive): bool
+    {
+        return in_array(strtolower($directive), $this->closingDirectives, true);
+    }
+
+    /** Whether an opening directive's closing directive also appears on the same line */
+    private function closesOnSameLine(string $directive, string $line): bool
+    {
+        $closing = $this->directivePairs[strtolower($directive)] ?? null;
+
+        return $closing !== null && stripos($line, $closing) !== false;
     }
 
     private function isCaseDirective(string $line): bool
