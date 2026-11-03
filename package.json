@@ -2,7 +2,7 @@
     "name": "blade-formatter",
     "displayName": "Blade Formatter",
     "description": "Format Blade templates and Livewire SFCs with Pint, Tailwind class sorting, and auto-indentation",
-    "version": "0.11.0",
+    "version": "0.11.1",
     "publisher": "joelstein",
     "engines": {
         "vscode": "^1.85.0"

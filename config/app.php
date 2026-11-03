@@ -2,7 +2,7 @@
 
 return [
     'name' => 'Blade Formatter',
-    'version' => '0.11.0',
+    'version' => '0.11.1',
     'env' => 'development',
     'providers' => [
         BladeFormatter\Providers\AppServiceProvider::class,
