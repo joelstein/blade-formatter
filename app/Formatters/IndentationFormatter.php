@@ -63,7 +63,7 @@ class IndentationFormatter
         ['open' => '/^@php\s*$/', 'close' => '/^@endphp\b/'],
     ];
 
-    /** @var list<string> Lowercased closing directives */
+    /** @var array<string, true> Lowercased closing directives, as keys for constant-time lookup */
     private array $closingDirectives;
 
     /** @var array<string, string> Lowercased opening directive => lowercased closing directive */
@@ -77,7 +77,7 @@ class IndentationFormatter
             $this->directivePairs[strtolower($d)] = strtolower($closing);
         }
 
-        $this->closingDirectives = array_values(array_unique(array_values($this->directivePairs)));
+        $this->closingDirectives = array_fill_keys(array_values($this->directivePairs), true);
     }
 
     public function format(string $content, int $indentSize = 4): string
@@ -108,7 +108,9 @@ class IndentationFormatter
         $indentPreserveLevel = 0;
         $inMultiLineComment = false;
 
-        for ($lineIndex = 0; $lineIndex < count($lines); $lineIndex++) {
+        $lineCount = count($lines);
+
+        for ($lineIndex = 0; $lineIndex < $lineCount; $lineIndex++) {
             $rawLine = $lines[$lineIndex];
             $trimmed = trim($rawLine);
 
@@ -502,7 +504,7 @@ class IndentationFormatter
 
                 if (! $hasClosingBracket) {
                     $inMultiLineTag = true;
-                    if ($isDynamicTag || ! isset($multiLineMatch[1])) {
+                    if ($isDynamicTag) {
                         $multiLineTagIsVoid = false;
                         $multiLineTagName = '';
                     } else {
@@ -676,6 +678,13 @@ class IndentationFormatter
      */
     private function maskExpressionAngles(string $line): string
     {
+        // Angles are only blanked inside a directive's arguments or a Blade
+        // expression, so a line with no angle, or with neither, is returned as-is
+        // without the character-by-character scan.
+        if (strpbrk($line, '<>') === false || (! str_contains($line, '@') && ! str_contains($line, '{{') && ! str_contains($line, '{!!'))) {
+            return $line;
+        }
+
         $length = strlen($line);
         $quote = null;
         $parenDepth = 0;
@@ -743,7 +752,7 @@ class IndentationFormatter
 
     private function isClosingDirective(string $directive): bool
     {
-        return in_array(strtolower($directive), $this->closingDirectives, true);
+        return isset($this->closingDirectives[strtolower($directive)]);
     }
 
     /** Whether an opening directive's closing directive also appears on the same line */
@@ -823,6 +832,12 @@ class IndentationFormatter
      */
     private function stripBladeDelimiters(string $line): string
     {
+        // The result is only used to count braces and brackets, and stripping
+        // never adds any, so a line without them needs no work.
+        if (strpbrk($line, '{}[]') === false) {
+            return $line;
+        }
+
         $line = $this->stripBladeExpressionDelimiters($line);
 
         // Strip content inside quoted strings so braces in string literals

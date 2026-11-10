@@ -5,7 +5,6 @@ namespace BladeFormatter;
 use BladeFormatter\Formatters\IndentationFormatter;
 use BladeFormatter\Formatters\PintFormatter;
 use BladeFormatter\Formatters\TailwindFormatter;
-use Symfony\Component\Process\Process;
 
 class BatchFormatter
 {
@@ -30,8 +29,8 @@ class BatchFormatter
     /**
      * Format multiple files in batch, minimizing subprocess invocations.
      *
-     * Pint and Prettier run concurrently since they operate on independent
-     * content (PHP sections vs Blade class strings).
+     * Every Pint and Prettier subprocess runs concurrently, since they operate
+     * on independent content (PHP sections, @php blocks, Blade class strings).
      *
      * @param  array<string, string>  $files  Keyed by file path => content
      * @param  (\Closure(string $path, string $formatted): void)|null  $onFileComplete
@@ -96,12 +95,12 @@ class BatchFormatter
             $allClassStrings = array_values(array_unique($allClassStrings));
         }
 
-        // Phase 3: Run Pint and Prettier concurrently
-        [$formattedPhp, $sortMap] = $this->runFormatters($phpChunks, $tailwindFormatter, $allClassStrings, $fileClassStrings);
-
-        // Phase 3b: Run Pint on @php blocks (SFC blocks expand imports for hoisting)
+        // Phase 3: Run Pint (PHP sections and @php blocks) and Prettier concurrently.
+        // SFC @php blocks expand imports for hoisting.
         $sfcPaths = array_keys(array_filter($parsed, fn (array $p): bool => $p['isSfc']));
-        $formattedPhpBlocks = $this->formatPhpBlocks($phpBlocks, $sfcPaths);
+        [$formattedPhp, $sortMap, $formattedPhpBlocks] = $this->runFormatters(
+            $phpChunks, $phpBlocks, $sfcPaths, $tailwindFormatter, $allClassStrings, $fileClassStrings,
+        );
 
         // Phase 4: Reassemble each file
         $indentationFormatter = new IndentationFormatter;
@@ -188,144 +187,119 @@ class BatchFormatter
     /**
      * Run Pint and Prettier concurrently.
      *
+     * Every subprocess is started before any is waited on, so the batch takes
+     * as long as the slowest one rather than the sum of them all.
+     *
      * @param  array<string, string>  $phpChunks
+     * @param  array<string, list<array{start: int, end: int, code: string}>>  $phpBlocks
+     * @param  list<string>  $sfcPaths  Paths of files that are SFCs
      * @param  list<string>  $allClassStrings
      * @param  array<string, list<string>>  $fileClassStrings
-     * @return array{array<string, string>, array<string, string>}
+     * @return array{array<string, string>, array<string, string>, array<string, array<int, string>>}
      */
-    private function runFormatters(array $phpChunks, TailwindFormatter $tailwindFormatter, array $allClassStrings, array $fileClassStrings): array
+    private function runFormatters(array $phpChunks, array $phpBlocks, array $sfcPaths, TailwindFormatter $tailwindFormatter, array $allClassStrings, array $fileClassStrings): array
     {
-        $pintTmpDir = null;
-        $pintProcess = null;
-        $pintKeyMap = [];
+        $pintFormatter = new PintFormatter;
 
-        $prettierTmpDir = null;
-        $prettierTmpFile = null;
-        $prettierProcess = null;
+        $warnPint = function (\Throwable $e) use ($phpChunks): void {
+            foreach (array_keys($phpChunks) as $path) {
+                $this->warnings[$path][] = 'Pint skipped: '.$e->getMessage();
+            }
+        };
 
-        // Start Pint process
-        if ($this->enablePint && $phpChunks !== []) {
+        $warnPhpBlocks = function (\Throwable $e) use ($phpBlocks): void {
+            foreach (array_keys($phpBlocks) as $path) {
+                $this->warnings[$path][] = 'Pint skipped for @php blocks: '.$e->getMessage();
+            }
+        };
+
+        $warnTailwind = function (\Throwable $e) use ($fileClassStrings): void {
+            foreach ($fileClassStrings as $path => $classStrings) {
+                if ($classStrings !== []) {
+                    $this->warnings[$path][] = 'Tailwind sorting skipped: '.$e->getMessage();
+                }
+            }
+        };
+
+        // Start Pint on the SFC PHP sections
+        $pendingPint = null;
+        if ($this->enablePint) {
             try {
-                $pintPath = PintFormatter::resolvePintPath();
-                $pintTmpDir = sys_get_temp_dir().'/blade-fmt-'.uniqid();
-                mkdir($pintTmpDir);
-
-                $index = 0;
-                foreach ($phpChunks as $key => $phpCode) {
-                    $filename = $index.'.php';
-                    $pintKeyMap[$filename] = $key;
-                    file_put_contents($pintTmpDir.'/'.$filename, $phpCode);
-                    $index++;
-                }
-
-                $command = [$pintPath, $pintTmpDir, '--quiet'];
-                if ($this->pintConfigPath !== null) {
-                    $command[] = '--config';
-                    $command[] = $this->pintConfigPath;
-                }
-
-                $pintProcess = new Process($command);
-                $pintProcess->setTimeout(30);
-                $pintProcess->start();
+                $pendingPint = $pintFormatter->startBatch($phpChunks, $this->pintConfigPath);
             } catch (\Throwable $e) {
-                foreach (array_keys($phpChunks) as $path) {
-                    $this->warnings[$path][] = 'Pint skipped: '.$e->getMessage();
-                }
-                $pintProcess = null;
+                $warnPint($e);
             }
         }
 
-        // Start Prettier process
-        if ($this->enableTailwindSort && $allClassStrings !== []) {
-            try {
-                $lines = array_map(
-                    fn (string $cs, int $i): string => '<div id="cs'.$i.'" class="'.$cs.'"></div>',
-                    $allClassStrings,
-                    array_keys($allClassStrings)
-                );
-
-                $prettierTmpDir = sys_get_temp_dir().'/blade-fmt-tw-'.uniqid();
-                mkdir($prettierTmpDir);
-                $prettierTmpFile = $prettierTmpDir.'/template.html';
-                file_put_contents($prettierTmpFile, implode("\n", $lines));
-
-                $command = TailwindFormatter::buildPrettierCommand($this->prettierPath, $prettierTmpFile);
-                $prettierProcess = new Process($command);
-                $prettierProcess->setTimeout(30);
-                $prettierProcess->start();
-            } catch (\Throwable $e) {
-                foreach ($fileClassStrings as $path => $classStrings) {
-                    if ($classStrings !== []) {
-                        $this->warnings[$path][] = 'Tailwind sorting skipped: '.$e->getMessage();
-                    }
+        // Start Pint on the @php blocks. SFC and regular blocks share one run,
+        // since they differ only in how the result is post-processed.
+        $blockChunks = [];
+        $blockKeyMap = [];
+        $expandImportsFor = [];
+        $isSfc = array_fill_keys($sfcPaths, true);
+        foreach ($phpBlocks as $path => $blocks) {
+            foreach ($blocks as $index => $block) {
+                $key = $path.':'.$index;
+                $blockKeyMap[$key] = ['path' => $path, 'index' => $index];
+                $blockChunks[$key] = $this->dedent($block['code']);
+                if (isset($isSfc[$path])) {
+                    $expandImportsFor[] = $key;
                 }
-                $prettierProcess = null;
             }
         }
 
-        // Wait for both and collect results
+        $pendingPhpBlocks = null;
+        try {
+            $pendingPhpBlocks = $pintFormatter->startPhpBlockBatch($blockChunks, $this->pintConfigPath);
+        } catch (\Throwable $e) {
+            $warnPhpBlocks($e);
+        }
+
+        // Start Prettier
+        $pendingSort = null;
+        if ($this->enableTailwindSort) {
+            try {
+                $pendingSort = $tailwindFormatter->startSort($this->prettierPath, $allClassStrings);
+            } catch (\Throwable $e) {
+                $warnTailwind($e);
+            }
+        }
+
+        // Wait for each and collect results
         $formattedPhp = [];
-        if ($pintProcess !== null) {
-            try {
-                $pintProcess->wait();
-                if ($pintProcess->isSuccessful() || $pintProcess->getExitCode() === 1) {
-                    foreach ($pintKeyMap as $filename => $key) {
-                        $formatted = rtrim((string) file_get_contents($pintTmpDir.'/'.$filename));
-                        if (! str_ends_with($formatted, '?'.'>')) {
-                            $formatted .= "\n".'?'.'>';
-                        }
-                        $formattedPhp[$key] = $formatted;
-                    }
-                } else {
-                    throw new \RuntimeException('Pint failed: '.($pintProcess->getErrorOutput() ?: $pintProcess->getOutput()));
-                }
-            } catch (\Throwable $e) {
-                foreach (array_keys($phpChunks) as $path) {
-                    $this->warnings[$path][] = 'Pint skipped: '.$e->getMessage();
-                }
-            } finally {
-                if ($pintTmpDir !== null) {
-                    foreach (glob($pintTmpDir.'/*.php') ?: [] as $file) {
-                        @unlink($file);
-                    }
-                    @rmdir($pintTmpDir);
-                }
+        try {
+            $formattedPhp = $pintFormatter->finishBatch($pendingPint);
+        } catch (\Throwable $e) {
+            $warnPint($e);
+        }
+
+        $formattedPhpBlocks = [];
+        try {
+            foreach ($pintFormatter->finishPhpBlockBatch($pendingPhpBlocks, $expandImportsFor) as $key => $code) {
+                $info = $blockKeyMap[$key];
+                $formattedPhpBlocks[$info['path']][$info['index']] = rtrim($code)."\n";
             }
+        } catch (\Throwable $e) {
+            $formattedPhpBlocks = [];
+            $warnPhpBlocks($e);
         }
 
         $sortMap = [];
-        if ($prettierProcess !== null && $prettierTmpFile !== null) {
-            try {
-                $prettierProcess->wait();
-                if ($prettierProcess->isSuccessful()) {
-                    $sorted = (string) file_get_contents($prettierTmpFile);
-                    preg_match_all('/class="([^"]*)"/', $sorted, $extractMatches);
+        try {
+            $sorted = $tailwindFormatter->finishSort($pendingSort);
 
-                    if (count($extractMatches[1]) === count($allClassStrings)) {
-                        for ($i = 0; $i < count($allClassStrings); $i++) {
-                            if ($allClassStrings[$i] !== $extractMatches[1][$i]) {
-                                $sortMap[$allClassStrings[$i]] = $extractMatches[1][$i];
-                            }
-                        }
+            if ($sorted !== null) {
+                foreach ($sorted as $i => $sortedClassString) {
+                    if ($allClassStrings[$i] !== $sortedClassString) {
+                        $sortMap[$allClassStrings[$i]] = $sortedClassString;
                     }
-                } else {
-                    throw new \RuntimeException('Prettier failed: '.($prettierProcess->getErrorOutput() ?: $prettierProcess->getOutput()));
-                }
-            } catch (\Throwable $e) {
-                foreach ($fileClassStrings as $path => $classStrings) {
-                    if ($classStrings !== []) {
-                        $this->warnings[$path][] = 'Tailwind sorting skipped: '.$e->getMessage();
-                    }
-                }
-            } finally {
-                @unlink($prettierTmpFile);
-                if ($prettierTmpDir !== null) {
-                    @rmdir($prettierTmpDir);
                 }
             }
+        } catch (\Throwable $e) {
+            $warnTailwind($e);
         }
 
-        return [$formattedPhp, $sortMap];
+        return [$formattedPhp, $sortMap, $formattedPhpBlocks];
     }
 
     /**
@@ -507,59 +481,6 @@ class BatchFormatter
         }
 
         return $blocks;
-    }
-
-    /**
-     * Format @php block contents with Pint.
-     *
-     * @param  array<string, list<array{start: int, end: int, code: string}>>  $phpBlocks
-     * @param  list<string>  $sfcPaths  Paths of files that are SFCs
-     * @return array<string, array<int, string>>  Formatted code per file, indexed same as blocks
-     */
-    private function formatPhpBlocks(array $phpBlocks, array $sfcPaths): array
-    {
-        if ($phpBlocks === []) {
-            return [];
-        }
-
-        // Split blocks into SFC and non-SFC batches
-        $sfcChunks = [];
-        $regularChunks = [];
-        $keyMap = [];
-        foreach ($phpBlocks as $path => $blocks) {
-            $isSfc = in_array($path, $sfcPaths);
-            foreach ($blocks as $index => $block) {
-                $key = $path.':'.$index;
-                $keyMap[$key] = ['path' => $path, 'index' => $index];
-                if ($isSfc) {
-                    $sfcChunks[$key] = $this->dedent($block['code']);
-                } else {
-                    $regularChunks[$key] = $this->dedent($block['code']);
-                }
-            }
-        }
-
-        try {
-            $pintFormatter = new PintFormatter;
-            // SFC blocks: expand imports so FQCNs can be hoisted to PHP section
-            $formatted = $pintFormatter->formatPhpBlockBatch($sfcChunks, $this->pintConfigPath, expandImports: true)
-                + $pintFormatter->formatPhpBlockBatch($regularChunks, $this->pintConfigPath, expandImports: false);
-        } catch (\Throwable $e) {
-            foreach (array_keys($phpBlocks) as $path) {
-                $this->warnings[$path][] = 'Pint skipped for @php blocks: '.$e->getMessage();
-            }
-
-            return [];
-        }
-
-        // Group results back by file
-        $results = [];
-        foreach ($formatted as $key => $code) {
-            $info = $keyMap[$key];
-            $results[$info['path']][$info['index']] = rtrim($code)."\n";
-        }
-
-        return $results;
     }
 
     /**

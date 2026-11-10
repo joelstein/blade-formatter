@@ -215,4 +215,31 @@ class TailwindFormatterTest extends TestCase
         $this->assertStringContainsString('@if($x)', $result);
         $this->assertStringContainsString('@endif', $result);
     }
+
+    #[Test]
+    public function it_sorts_a_batch_too_large_for_one_prettier_file(): void
+    {
+        // Enough distinct class strings to be spread over several files and
+        // more than one Prettier process.
+        $classStrings = [];
+        $expected = [];
+        for ($i = 1; $i <= 5200; $i++) {
+            $classStrings[] = 'p-['.$i.'px] flex';
+            $expected[] = 'flex p-['.$i.'px]';
+        }
+
+        $sorted = $this->formatter->sortClassStringsBatch('node_modules/.bin/prettier', $classStrings);
+
+        $this->assertSame($expected, $sorted);
+    }
+
+    #[Test]
+    public function it_cleans_up_its_temp_files_after_sorting(): void
+    {
+        $before = glob(sys_get_temp_dir().'/blade-fmt-tw-*') ?: [];
+
+        $this->formatter->sortClassStringsBatch('node_modules/.bin/prettier', ['font-bold flex']);
+
+        $this->assertSame($before, glob(sys_get_temp_dir().'/blade-fmt-tw-*') ?: []);
+    }
 }

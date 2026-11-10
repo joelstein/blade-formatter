@@ -3,9 +3,9 @@
 ROOT="$(git rev-parse --show-toplevel)"
 
 # Rebuild the PHAR if PHP source files changed
-if git diff --cached --name-only | grep -qE '^(app|bootstrap|config)/.*\.php$|^bin/blade-format$|^box\.json$'; then
+if git diff --cached --name-only | grep -qE '^(app|bootstrap|config)/.*\.php$|^bin/(blade-format|build-phar)$|^box\.json$|^composer\.lock$'; then
     echo "PHP source changed — rebuilding PHAR..."
-    php -d phar.readonly=0 vendor/laravel-zero/framework/bin/box compile --working-dir="$ROOT" --quiet 2>&1
+    php "$ROOT/bin/build-phar" 2>&1
 
     if [ $? -ne 0 ]; then
         echo "PHAR build failed. Commit aborted."

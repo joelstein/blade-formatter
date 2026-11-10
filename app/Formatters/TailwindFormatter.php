@@ -23,6 +23,18 @@ class TailwindFormatter
     /** Pattern to match @class([...]) directives and $var->class([...]) method calls */
     private const CLASS_ARRAY_CALL_PATTERN = '/(?:@class|\$\w+->class)\(\[[\s\S]*?\]\)/';
 
+    /**
+     * Class strings written to each file handed to Prettier. Its HTML printer
+     * slows down sharply as one document grows, so a large batch is spread
+     * over many small files rather than written as a single huge one.
+     */
+    private const CLASS_STRINGS_PER_FILE = 500;
+
+    /** Class strings handled by each Prettier process before another is started */
+    private const CLASS_STRINGS_PER_PROCESS = 5000;
+
+    private const MAX_PRETTIER_PROCESSES = 4;
+
     public function format(string $content, string $prettierPath = 'node_modules/.bin/prettier'): string
     {
         // Step 1: Sort standard class="..." attributes
@@ -352,54 +364,114 @@ class TailwindFormatter
      */
     private function sortClassStrings(string $prettierPath, array $classStrings): ?array
     {
-        if ($classStrings === []) {
-            return [];
-        }
-
-        $lines = array_map(
-            fn (string $cs, int $i): string => '<div id="cs'.$i.'" class="'.$cs.'"></div>',
-            $classStrings,
-            array_keys($classStrings)
-        );
-
-        $sorted = $this->runPrettier($prettierPath, implode("\n", $lines));
-
-        preg_match_all('/class="([^"]*)"/', $sorted, $extractMatches);
-
-        if (count($extractMatches[1]) !== count($classStrings)) {
-            return null;
-        }
-
-        return $extractMatches[1];
+        return $this->finishSort($this->startSort($prettierPath, $classStrings));
     }
 
     /**
-     * Run Prettier with the Tailwind CSS plugin on content via a temp file.
+     * Start sorting class strings with Prettier without waiting for it, so it
+     * can overlap with other subprocesses. Pass the result to finishSort().
+     *
+     * @param  list<string>  $classStrings
+     * @return array{processes: list<Process>, dir: string, files: list<array{path: string, count: int}>}|null Null when there is nothing to sort
      */
-    private function runPrettier(string $prettierPath, string $content): string
+    public function startSort(string $prettierPath, array $classStrings): ?array
     {
+        if ($classStrings === []) {
+            return null;
+        }
+
         $tmpDir = sys_get_temp_dir().'/blade-fmt-tw-'.uniqid();
         mkdir($tmpDir);
-        $tmpFile = $tmpDir.'/template.html';
+
+        $files = [];
+        $processes = [];
 
         try {
-            file_put_contents($tmpFile, $content);
+            foreach (array_chunk($classStrings, self::CLASS_STRINGS_PER_FILE) as $index => $chunk) {
+                $lines = array_map(
+                    fn (string $cs, int $i): string => '<div id="cs'.$i.'" class="'.$cs.'"></div>',
+                    $chunk,
+                    array_keys($chunk)
+                );
 
-            $command = self::buildPrettierCommand($prettierPath, $tmpFile);
-
-            $process = new Process($command);
-            $process->setTimeout(30);
-            $process->run();
-
-            if (! $process->isSuccessful()) {
-                throw new RuntimeException('Prettier failed: '.($process->getErrorOutput() ?: $process->getOutput()));
+                $path = $tmpDir.'/template'.$index.'.html';
+                file_put_contents($path, implode("\n", $lines));
+                $files[] = ['path' => $path, 'count' => count($chunk)];
             }
 
-            return (string) file_get_contents($tmpFile);
-        } finally {
-            @unlink($tmpFile);
-            @rmdir($tmpDir);
+            $processCount = min(
+                self::MAX_PRETTIER_PROCESSES,
+                (int) ceil(count($classStrings) / self::CLASS_STRINGS_PER_PROCESS),
+            );
+            $paths = array_column($files, 'path');
+
+            foreach (array_chunk($paths, max(1, (int) ceil(count($paths) / $processCount))) as $group) {
+                $process = new Process(self::buildPrettierCommand($prettierPath, $group));
+                $process->setTimeout(30);
+                $process->start();
+                $processes[] = $process;
+            }
+        } catch (\Throwable $e) {
+            foreach ($processes as $process) {
+                $process->stop(0);
+            }
+            self::removeTmpDir($tmpDir);
+
+            throw $e;
         }
+
+        return ['processes' => $processes, 'dir' => $tmpDir, 'files' => $files];
+    }
+
+    /**
+     * Wait for a sort started by startSort() and collect its results.
+     *
+     * @param  array{processes: list<Process>, dir: string, files: list<array{path: string, count: int}>}|null  $pending
+     * @return list<string>|null Sorted class strings in the order they were given, or null if Prettier's output could not be matched back to them
+     */
+    public function finishSort(?array $pending): ?array
+    {
+        if ($pending === null) {
+            return [];
+        }
+
+        try {
+            foreach ($pending['processes'] as $process) {
+                $process->wait();
+
+                if (! $process->isSuccessful()) {
+                    throw new RuntimeException('Prettier failed: '.($process->getErrorOutput() ?: $process->getOutput()));
+                }
+            }
+
+            $sorted = [];
+            foreach ($pending['files'] as $file) {
+                preg_match_all('/class="([^"]*)"/', (string) file_get_contents($file['path']), $extractMatches);
+
+                if (count($extractMatches[1]) !== $file['count']) {
+                    return null;
+                }
+
+                foreach ($extractMatches[1] as $classString) {
+                    $sorted[] = $classString;
+                }
+            }
+
+            return $sorted;
+        } finally {
+            foreach ($pending['processes'] as $process) {
+                $process->stop(0);
+            }
+            self::removeTmpDir($pending['dir']);
+        }
+    }
+
+    private static function removeTmpDir(string $tmpDir): void
+    {
+        foreach (glob($tmpDir.'/*.html') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($tmpDir);
     }
 
     /**
@@ -429,11 +501,12 @@ class TailwindFormatter
     /**
      * Build the Prettier command array.
      *
+     * @param  string|list<string>  $filePaths
      * @return list<string>
      */
-    public static function buildPrettierCommand(string $prettierPath, string $filePath): array
+    public static function buildPrettierCommand(string $prettierPath, string|array $filePaths): array
     {
-        $commonArgs = [$filePath, '--write', '--plugin', 'prettier-plugin-tailwindcss', '--print-width', '9999'];
+        $commonArgs = [...(array) $filePaths, '--write', '--plugin', 'prettier-plugin-tailwindcss', '--print-width', '9999'];
 
         if ($prettierPath !== 'npx') {
             return [$prettierPath, ...$commonArgs];

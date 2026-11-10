@@ -609,4 +609,79 @@ BLADE;
         // No stray backslash before the short name
         $this->assertStringNotContainsString('\Config::', $result);
     }
+
+    #[Test]
+    public function it_formats_sfc_and_regular_php_blocks_in_the_same_batch(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: true,
+            enableTailwindSort: false,
+        );
+
+        $sfc = <<<'BLADE'
+<?php
+
+use Livewire\Component;
+
+new class extends Component {
+    public string $name = '';
+};
+?>
+
+<div>
+    @php
+        use App\Enums\Status;
+
+        $isPending = $status === Status::Pending;
+    @endphp
+</div>
+BLADE;
+
+        $regular = <<<'BLADE'
+@php
+    use App\Enums\Priority;
+
+    $isUrgent = $priority===Priority::Urgent;
+@endphp
+BLADE;
+
+        $results = $formatter->formatBatch([
+            '/tmp/sfc.blade.php' => $sfc,
+            '/tmp/regular.blade.php' => $regular,
+        ]);
+
+        // The SFC block's import is hoisted to the PHP section...
+        preg_match('/@php(.*?)@endphp/s', $results['/tmp/sfc.blade.php'], $sfcBlock);
+        $this->assertStringNotContainsString('use App\\', $sfcBlock[1]);
+        $this->assertStringContainsString("use App\\Enums\\Status;\nuse Livewire\\Component;", $results['/tmp/sfc.blade.php']);
+
+        // ...while the regular file's block keeps its own, and is still formatted.
+        $this->assertStringContainsString('use App\Enums\Priority;', $results['/tmp/regular.blade.php']);
+        $this->assertStringContainsString('$priority === Priority::Urgent', $results['/tmp/regular.blade.php']);
+
+        $this->assertSame([], $formatter->getAllWarnings());
+    }
+
+    #[Test]
+    public function it_warns_and_leaves_classes_alone_when_prettier_fails(): void
+    {
+        $formatter = new BatchFormatter(
+            enablePint: false,
+            enableTailwindSort: true,
+            prettierPath: '/nonexistent/prettier',
+        );
+
+        $withClasses = '<div class="font-bold text-red-500 flex"></div>';
+        $withoutClasses = '<p>Hello</p>';
+
+        $results = $formatter->formatBatch([
+            '/tmp/with.blade.php' => $withClasses,
+            '/tmp/without.blade.php' => $withoutClasses,
+        ]);
+
+        $this->assertSame($withClasses, $results['/tmp/with.blade.php']);
+        $this->assertCount(1, $formatter->getWarnings('/tmp/with.blade.php'));
+        $this->assertStringStartsWith('Tailwind sorting skipped: ', $formatter->getWarnings('/tmp/with.blade.php')[0]);
+        $this->assertSame([], $formatter->getWarnings('/tmp/without.blade.php'));
+    }
 }

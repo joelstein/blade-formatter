@@ -23,8 +23,20 @@ class PintFormatter
      */
     public function formatBatch(array $phpChunks, ?string $configPath = null, bool $ensureClosingTag = true): array
     {
+        return $this->finishBatch($this->startBatch($phpChunks, $configPath), $ensureClosingTag);
+    }
+
+    /**
+     * Start a Pint run over the chunks without waiting for it, so it can
+     * overlap with other subprocesses. Pass the result to finishBatch().
+     *
+     * @param  array<string, string>  $phpChunks  Keyed by identifier
+     * @return array{process: Process, dir: string, keyMap: array<string, string>}|null Null when there is nothing to format
+     */
+    public function startBatch(array $phpChunks, ?string $configPath = null): ?array
+    {
         if ($phpChunks === []) {
-            return [];
+            return null;
         }
 
         $pintPath = self::resolvePintPath();
@@ -49,7 +61,33 @@ class PintFormatter
 
             $process = new Process($command);
             $process->setTimeout(30);
-            $process->run();
+            $process->start();
+        } catch (\Throwable $e) {
+            self::removeTmpDir($tmpDir);
+
+            throw $e;
+        }
+
+        return ['process' => $process, 'dir' => $tmpDir, 'keyMap' => $keyMap];
+    }
+
+    /**
+     * Wait for a Pint run started by startBatch() and collect its results.
+     *
+     * @param  array{process: Process, dir: string, keyMap: array<string, string>}|null  $pending
+     * @param  bool  $ensureClosingTag  Append closing ?> if missing (for SFC sections)
+     * @return array<string, string> Formatted chunks, keyed as they were given
+     */
+    public function finishBatch(?array $pending, bool $ensureClosingTag = true): array
+    {
+        if ($pending === null) {
+            return [];
+        }
+
+        ['process' => $process, 'dir' => $tmpDir, 'keyMap' => $keyMap] = $pending;
+
+        try {
+            $process->wait();
 
             // Pint exits with 1 when it makes changes, which is fine
             if (! $process->isSuccessful() && $process->getExitCode() !== 1) {
@@ -72,11 +110,7 @@ class PintFormatter
 
             return $results;
         } finally {
-            // Clean up temp files
-            foreach (glob($tmpDir.'/*.php') ?: [] as $file) {
-                @unlink($file);
-            }
-            @rmdir($tmpDir);
+            self::removeTmpDir($tmpDir);
         }
     }
 
@@ -92,8 +126,23 @@ class PintFormatter
      */
     public function formatPhpBlockBatch(array $phpChunks, ?string $configPath = null, bool $expandImports = false): array
     {
+        return $this->finishPhpBlockBatch(
+            $this->startPhpBlockBatch($phpChunks, $configPath),
+            $expandImports ? array_keys($phpChunks) : [],
+        );
+    }
+
+    /**
+     * Start a Pint run over @php block contents without waiting for it.
+     * Pass the result to finishPhpBlockBatch().
+     *
+     * @param  array<string, string>  $phpChunks  Keyed by identifier, raw PHP without <?php prefix
+     * @return array{process: Process, dir: string, keyMap: array<string, string>, config: string}|null Null when there is nothing to format
+     */
+    public function startPhpBlockBatch(array $phpChunks, ?string $configPath = null): ?array
+    {
         if ($phpChunks === []) {
-            return [];
+            return null;
         }
 
         // Wrap each chunk with <?php for Pint
@@ -105,16 +154,48 @@ class PintFormatter
         $blockConfig = $this->buildPhpBlockConfig($configPath);
 
         try {
-            $formatted = $this->formatBatch($wrapped, $blockConfig, ensureClosingTag: false);
-        } finally {
+            $pending = $this->startBatch($wrapped, $blockConfig);
+        } catch (\Throwable $e) {
             @unlink($blockConfig);
+
+            throw $e;
         }
+
+        if ($pending === null) {
+            @unlink($blockConfig);
+
+            return null;
+        }
+
+        return [...$pending, 'config' => $blockConfig];
+    }
+
+    /**
+     * Wait for a run started by startPhpBlockBatch() and collect its results.
+     *
+     * @param  array{process: Process, dir: string, keyMap: array<string, string>, config: string}|null  $pending
+     * @param  list<string>  $expandImportsFor  Keys of the chunks whose use statements are expanded to FQCNs
+     * @return array<string, string> Formatted chunks, keyed as they were given
+     */
+    public function finishPhpBlockBatch(?array $pending, array $expandImportsFor = []): array
+    {
+        if ($pending === null) {
+            return [];
+        }
+
+        try {
+            $formatted = $this->finishBatch($pending, ensureClosingTag: false);
+        } finally {
+            @unlink($pending['config']);
+        }
+
+        $expand = array_fill_keys($expandImportsFor, true);
 
         // Strip <?php prefix and optionally expand use statements to FQCNs
         $results = [];
         foreach ($formatted as $key => $code) {
             $code = (string) preg_replace('/^<\?php\s*\n?/', '', $code);
-            if ($expandImports) {
+            if (isset($expand[$key])) {
                 $code = $this->expandUseStatements($code);
                 $code = $this->stripLeadingBackslashes($code);
             }
@@ -122,6 +203,14 @@ class PintFormatter
         }
 
         return $results;
+    }
+
+    private static function removeTmpDir(string $tmpDir): void
+    {
+        foreach (glob($tmpDir.'/*.php') ?: [] as $file) {
+            @unlink($file);
+        }
+        @rmdir($tmpDir);
     }
 
     /**

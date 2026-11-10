@@ -1,0 +1,192 @@
+#!/usr/bin/env php
+<?php
+
+/**
+ * Build builds/blade-format, bundling only the packages the CLI needs to run.
+ *
+ * Every dependency lives in require-dev, so that a project requiring this
+ * package installs none of them — it runs the PHAR instead. That leaves
+ * Composer unable to tell the framework the CLI runs on from the tools used
+ * to develop it (PHPStan, PHPUnit, Pint...), and bundling the lot makes the
+ * PHAR several times larger and slower to start on every invocation.
+ *
+ * So the runtime set is worked out here: the packages named in
+ * RUNTIME_PACKAGES plus everything they require, read from composer.lock.
+ * Only those are handed to Box. The result is smoke-tested before it
+ * replaces the existing build.
+ */
+
+/** Packages the CLI needs at runtime; their dependencies follow automatically. */
+const RUNTIME_PACKAGES = ['laravel-zero/framework'];
+
+$root = dirname(__DIR__);
+$output = $root.'/builds/blade-format';
+
+/** @return never */
+function fail(string $message): void
+{
+    fwrite(STDERR, $message."\n");
+    exit(1);
+}
+
+/**
+ * @return array<mixed>
+ */
+function readJson(string $path): array
+{
+    $data = json_decode((string) @file_get_contents($path), true);
+
+    if (! is_array($data)) {
+        fail("Could not read {$path}.");
+    }
+
+    return $data;
+}
+
+/**
+ * The names of the runtime packages and all their dependencies.
+ *
+ * @param  array<mixed>  $lock
+ * @return list<string>
+ */
+function runtimePackages(array $lock): array
+{
+    $packages = [];
+    foreach (array_merge($lock['packages'] ?? [], $lock['packages-dev'] ?? []) as $package) {
+        $packages[$package['name']] = $package;
+    }
+
+    // A requirement may be met by a package that replaces or provides it.
+    $providers = [];
+    foreach ($packages as $name => $package) {
+        foreach (array_keys(array_merge($package['replace'] ?? [], $package['provide'] ?? [])) as $provided) {
+            $providers[$provided][] = $name;
+        }
+    }
+
+    $resolved = [];
+    $queue = RUNTIME_PACKAGES;
+
+    while ($queue !== []) {
+        $name = array_pop($queue);
+
+        if (isset($resolved[$name])) {
+            continue;
+        }
+
+        if (! isset($packages[$name])) {
+            // Platform requirements (php, ext-*) have no providers and drop out here.
+            array_push($queue, ...($providers[$name] ?? []));
+
+            continue;
+        }
+
+        $resolved[$name] = true;
+        array_push($queue, ...array_keys($packages[$name]['require'] ?? []));
+    }
+
+    $names = array_keys($resolved);
+    sort($names);
+
+    return $names;
+}
+
+/**
+ * @param  list<string>  $command
+ * @return array{int, string} Exit code and combined output
+ */
+function run(array $command, string $cwd): array
+{
+    $process = proc_open($command, [1 => ['pipe', 'w'], 2 => ['redirect', 1]], $pipes, $cwd);
+
+    if (! is_resource($process)) {
+        fail('Could not run: '.implode(' ', $command));
+    }
+
+    $out = (string) stream_get_contents($pipes[1]);
+    fclose($pipes[1]);
+
+    return [proc_close($process), $out];
+}
+
+function removeDirectory(string $dir): void
+{
+    foreach (glob($dir.'/{,.}[!.]*', GLOB_BRACE) ?: [] as $entry) {
+        is_dir($entry) ? removeDirectory($entry) : @unlink($entry);
+    }
+    @rmdir($dir);
+}
+
+/**
+ * Check the built PHAR boots and formats a file. Pint and Prettier are
+ * disabled so the check depends on nothing outside the PHAR.
+ */
+function smokeTest(string $phar, string $workDir): void
+{
+    [$exitCode, $out] = run([PHP_BINARY, $phar, '--version'], $workDir);
+    if ($exitCode !== 0) {
+        fail("Built PHAR failed to start:\n".$out);
+    }
+
+    file_put_contents($workDir.'/blade-formatter.json', (string) json_encode([
+        'enable_pint' => false,
+        'enable_tailwind_sort' => false,
+    ]));
+    file_put_contents($workDir.'/sample.blade.php', "<div>\n<p>Hello</p>\n</div>\n");
+
+    [$exitCode, $out] = run([PHP_BINARY, $phar, 'sample.blade.php'], $workDir);
+    $formatted = (string) file_get_contents($workDir.'/sample.blade.php');
+
+    if ($exitCode !== 0 || $formatted !== "<div>\n    <p>Hello</p>\n</div>\n") {
+        fail("Built PHAR failed to format a file (exit code {$exitCode}):\n".$out);
+    }
+}
+
+$box = $root.'/vendor/laravel-zero/framework/bin/box';
+if (! file_exists($box)) {
+    fail("Box not found. Run 'composer install' first.");
+}
+
+$runtime = runtimePackages(readJson($root.'/composer.lock'));
+
+foreach ($runtime as $name) {
+    if (! is_dir($root.'/vendor/'.$name)) {
+        fail("vendor/{$name} is missing. Run 'composer install' first.");
+    }
+}
+
+$workDir = sys_get_temp_dir().'/blade-format-build-'.uniqid();
+mkdir($workDir);
+
+try {
+    // box.json holds the settings shared by every build; only what goes into
+    // the PHAR, and where it is written, is decided here.
+    $config = readJson($root.'/box.json');
+    $config['base-path'] = $root;
+    $config['output'] = $workDir.'/blade-format.phar';
+    $config['directories'] = array_values(array_diff($config['directories'] ?? [], ['vendor']));
+    $config['files'] = array_values(array_unique([...($config['files'] ?? []), 'vendor/autoload.php']));
+    $config['finder'] = [[
+        'in' => ['vendor/composer', ...array_map(fn (string $name): string => 'vendor/'.$name, $runtime)],
+    ]];
+    $config['force-autodiscovery'] = false;
+
+    $configPath = $workDir.'/box.json';
+    file_put_contents($configPath, (string) json_encode($config, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+    [$exitCode, $out] = run([PHP_BINARY, '-d', 'phar.readonly=0', $box, 'compile', '--config='.$configPath, '--quiet'], $root);
+    if ($exitCode !== 0 || ! file_exists($config['output'])) {
+        fail("PHAR build failed:\n".$out);
+    }
+
+    smokeTest($config['output'], $workDir);
+
+    if (! rename($config['output'], $output)) {
+        fail("Could not write {$output}.");
+    }
+    chmod($output, 0755);
+
+    printf("Built %s (%.1f MB, %d packages).\n", 'builds/blade-format', filesize($output) / 1048576, count($runtime));
+} finally {
+    removeDirectory($workDir);
+}
