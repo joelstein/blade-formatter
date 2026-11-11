@@ -602,7 +602,12 @@ class IndentationFormatter
         $searchLine = $this->maskExpressionAngles($searchLine);
 
         // HTML/component opening tags (not self-closing, not void)
-        preg_match_all('/<([\w:.-]+)(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $searchLine, $openTagMatches, PREG_SET_ORDER);
+        // The attribute quantifiers are possessive. Each alternative starts with a
+        // different character, so giving characters back can never produce a
+        // match — but without them a tag this pattern rejects, such as a
+        // self-closing one, has its attributes retried every possible way until
+        // PCRE's backtrack limit is hit and the whole line is abandoned.
+        preg_match_all('/<([\w:.-]+)(?:\s(?:[^>"\']++|"[^"]*+"|\'[^\']*+\')*+)?\s*(?<!\/)\s*>/s', $searchLine, $openTagMatches, PREG_SET_ORDER);
         foreach ($openTagMatches as $match) {
             $tagName = strtolower($match[1]);
             $baseTag = explode(':', $tagName)[0] ?: $tagName;
@@ -632,7 +637,7 @@ class IndentationFormatter
         }
 
         // Dynamic opening tags like <{{ $var }}>
-        preg_match_all('/<\{\{.*?\}\}(?:\s(?:[^>"\']*|"[^"]*"|\'[^\']*\')*)?\s*(?<!\/)\s*>/s', $searchLine, $dynamicOpenMatches, PREG_SET_ORDER);
+        preg_match_all('/<\{\{.*?\}\}(?:\s(?:[^>"\']++|"[^"]*+"|\'[^\']*+\')*+)?\s*(?<!\/)\s*>/s', $searchLine, $dynamicOpenMatches, PREG_SET_ORDER);
         foreach ($dynamicOpenMatches as $match) {
             if (! str_ends_with($match[0], '/>')) {
                 $count++;

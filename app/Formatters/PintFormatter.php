@@ -7,6 +7,16 @@ use Symfony\Component\Process\Process;
 
 class PintFormatter
 {
+    /** The Pint release that introduced the --parallel option */
+    private const PARALLEL_MIN_VERSION = '1.23.0';
+
+    /**
+     * Chunks a batch needs before Pint is run in parallel. Starting the worker
+     * processes costs about as much as formatting a dozen files, so a smaller
+     * batch — a single file formatted on save — is quicker in one process.
+     */
+    private const PARALLEL_MIN_CHUNKS = 16;
+
     public function format(string $phpCode, ?string $configPath = null): string
     {
         $results = $this->formatBatch(['single' => $phpCode], $configPath);
@@ -53,13 +63,7 @@ class PintFormatter
                 $index++;
             }
 
-            $command = [$pintPath, $tmpDir, '--quiet'];
-            if ($configPath !== null) {
-                $command[] = '--config';
-                $command[] = $configPath;
-            }
-
-            $process = new Process($command);
+            $process = new Process(self::buildPintCommand($pintPath, $tmpDir, count($phpChunks), $configPath));
             $process->setTimeout(30);
             $process->start();
         } catch (\Throwable $e) {
@@ -288,6 +292,68 @@ class PintFormatter
     {
         // Match \ClassName (uppercase after backslash, not inside strings)
         return (string) preg_replace('/(?<![\\\\a-zA-Z])\\\\([A-Z])/', '$1', $code);
+    }
+
+    /**
+     * Build the Pint command array.
+     *
+     * A large batch is formatted in parallel when the Pint being run supports it.
+     *
+     * @return list<string>
+     */
+    public static function buildPintCommand(string $pintPath, string $directory, int $chunkCount, ?string $configPath = null): array
+    {
+        $command = [$pintPath, $directory, '--quiet'];
+
+        if ($configPath !== null) {
+            $command[] = '--config';
+            $command[] = $configPath;
+        }
+
+        if ($chunkCount >= self::PARALLEL_MIN_CHUNKS && self::supportsParallel($pintPath)) {
+            $command[] = '--parallel';
+        }
+
+        return $command;
+    }
+
+    /**
+     * Whether the Pint at the given path accepts the --parallel option.
+     *
+     * An older Pint rejects the option outright, and its exit status for that
+     * is the same one it uses for "files were changed", so support is decided
+     * up front from the installed version rather than by trying it.
+     */
+    public static function supportsParallel(string $pintPath): bool
+    {
+        $version = self::installedPintVersion($pintPath);
+
+        return $version !== null && version_compare($version, self::PARALLEL_MIN_VERSION, '>=');
+    }
+
+    /**
+     * The version of the Pint at the given path, read from the Composer
+     * metadata of the vendor directory it lives in (`vendor/bin/pint` →
+     * `vendor/composer/installed.php`). Null when it cannot be determined.
+     */
+    public static function installedPintVersion(string $pintPath): ?string
+    {
+        $installedPath = dirname($pintPath, 2).'/composer/installed.php';
+
+        if (! is_file($installedPath)) {
+            return null;
+        }
+
+        $installed = require $installedPath;
+
+        if (! is_array($installed) || ! is_array($installed['versions'] ?? null)) {
+            return null;
+        }
+
+        $pint = $installed['versions']['laravel/pint'] ?? null;
+        $version = is_array($pint) ? ($pint['version'] ?? null) : null;
+
+        return is_string($version) ? $version : null;
     }
 
     public static function resolvePintPath(): string

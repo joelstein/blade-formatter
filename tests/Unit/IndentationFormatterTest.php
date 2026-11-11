@@ -1281,4 +1281,50 @@ BLADE;
 
         $this->assertSame($expected, $this->indent($input));
     }
+
+    // ── Tag matching without backtracking ─────────────────────────────
+
+    #[Test]
+    public function it_counts_an_opening_tag_that_follows_a_self_closing_tag_with_attributes(): void
+    {
+        // A self-closing tag can never match the opening-tag pattern. Retrying
+        // its attributes every possible way used to exhaust PCRE's backtrack
+        // limit, which abandoned the whole line and lost the tag after it.
+        $input = "<input type=\"text\" name=\"title\" value=\"Hello\" /><div>\n<p>Hello</p>\n</div>";
+        $expected = "<input type=\"text\" name=\"title\" value=\"Hello\" /><div>\n    <p>Hello</p>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+        $this->assertSame(PREG_NO_ERROR, preg_last_error());
+    }
+
+    #[Test]
+    public function it_stays_within_the_backtrack_limit_on_a_self_closing_tag_with_many_attributes(): void
+    {
+        $attributes = implode(' ', array_map(
+            fn (int $i): string => 'data-item-'.$i.'="value '.$i.'"',
+            range(1, 40),
+        ));
+        $input = "<div>\n<input {$attributes} />\n<p>Hello</p>\n</div>";
+        $expected = "<div>\n    <input {$attributes} />\n    <p>Hello</p>\n</div>";
+
+        // A tight limit turns any runaway backtracking into a failed match.
+        $limit = ini_set('pcre.backtrack_limit', '2000');
+        $jit = ini_set('pcre.jit', '0');
+
+        try {
+            $this->assertSame($expected, $this->indent($input));
+        } finally {
+            ini_set('pcre.backtrack_limit', (string) $limit);
+            ini_set('pcre.jit', (string) $jit);
+        }
+    }
+
+    #[Test]
+    public function it_opens_a_level_for_a_tag_with_many_quoted_attributes(): void
+    {
+        $input = "<div id=\"a\" data-one='1' data-two=\"it's\" title='say \"hi\"' hidden>\n<p>Hello</p>\n</div>";
+        $expected = "<div id=\"a\" data-one='1' data-two=\"it's\" title='say \"hi\"' hidden>\n    <p>Hello</p>\n</div>";
+
+        $this->assertSame($expected, $this->indent($input));
+    }
 }
